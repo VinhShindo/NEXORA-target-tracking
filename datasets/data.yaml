@@ -1,0 +1,32 @@
+# Dataset configuration
+path: ./datasets
+train: images/train
+val: images/val
+test: images/test
+
+# Classes
+names:
+  0: person
+  1: bottle
+  2: chair
+  3: ball
+  4: bag
+
+# Number of classes
+nc: 5
+
+# Dataset parameters
+augmentation:
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.0
+  fliplr: 0.5
+  mosaic: 1.0
+  mixup: 0.0
+  copy_paste: 0.0
