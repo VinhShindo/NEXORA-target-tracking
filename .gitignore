@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+env/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# VSCode
+.vscode/
+
+# PyCharm
+.idea/
+
+# ROS2
+log/
+install/
+build/
+
+# Dataset
+datasets/raw/
+datasets/temp/
+
+# Model Weights
+models/*.pt
+models/*.pth
+models/*.onnx
+models/*.engine
+
+# Linux
+*.swp
+*~
+
+# Environment
+.env
+
+# Cache
+.cache/
+
+# Testing
+.pytest_cache/
+
+# Generated Results
+runs/
+outputs/
+results/
+
+# Media
+*.mp4
+*.avi
+*.mov
+
+# Temporary
+tmp/
+temp/
+
+# OS
+.DS_Store
+Thumbs.db
