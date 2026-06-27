@@ -1,0 +1,714 @@
+/* NEXORA - Cyberpunk Robotics Dashboard */
+:root {
+    --bg-primary: #0a0e1a;
+    --bg-secondary: #0d1529;
+    --bg-panel: #111c3a;
+    --bg-panel-hover: #16254a;
+    --text-primary: #e0e8f5;
+    --text-secondary: #7a8bb5;
+    --text-muted: #4a5a7a;
+    --border-color: #1a2d5a;
+    --border-glow: #2a4a8a;
+    
+    /* Cyberpunk Blue Palette */
+    --blue-primary: #00d4ff;
+    --blue-secondary: #0088ff;
+    --blue-dark: #0044aa;
+    --blue-glow: rgba(0, 212, 255, 0.3);
+    
+    --green-neon: #00ff88;
+    --red-neon: #ff0044;
+    --yellow-neon: #ffcc00;
+    --purple-neon: #8800ff;
+    
+    --shadow: 0 0 30px rgba(0, 212, 255, 0.1);
+    --shadow-glow: 0 0 60px rgba(0, 212, 255, 0.2);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', 'Courier New', monospace;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--blue-primary);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--blue-secondary);
+}
+
+/* Dashboard Container */
+.dashboard-container {
+    max-width: 1920px;
+    margin: 0 auto;
+    padding: 12px 20px;
+}
+
+/* Header */
+.dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 24px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow);
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.logo i {
+    font-size: 32px;
+    color: var(--blue-primary);
+    text-shadow: 0 0 20px var(--blue-glow);
+    animation: pulse-glow 2s infinite;
+}
+
+.logo span {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--blue-primary);
+    letter-spacing: 2px;
+    text-shadow: 0 0 20px var(--blue-glow);
+}
+
+.header-title h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 2px;
+    color: var(--text-primary);
+}
+
+.header-title p {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin: 0;
+    letter-spacing: 1px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.status-badge i {
+    font-size: 8px;
+}
+
+.status-badge .fa-circle {
+    color: var(--green-neon);
+}
+
+/* Panels */
+.panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    transition: all 0.3s ease;
+    margin-bottom: 0;
+}
+
+.mt-2 {
+    margin-top: 0.5rem !important;
+}
+
+.panel:hover {
+    border-color: var(--border-glow);
+    box-shadow: var(--shadow-glow);
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+}
+
+.panel-header i {
+    color: var(--blue-primary);
+    font-size: 14px;
+}
+
+.panel-header-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+}
+
+.panel-body {
+    padding: 16px;
+}
+
+.panel-footer {
+    padding: 10px 16px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* Camera Panel */
+.camera-panel .panel-body {
+    padding: 0;
+    position: relative;
+}
+
+.camera-container {
+    position: relative;
+    background: #000;
+    min-height: 400px;
+}
+
+.camera-container img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.camera-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.8);
+    color: var(--text-secondary);
+    transition: opacity 0.3s ease;
+}
+
+.camera-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.camera-overlay i {
+    font-size: 64px;
+    color: var(--blue-primary);
+    margin-bottom: 12px;
+    text-shadow: 0 0 40px var(--blue-glow);
+}
+
+.camera-overlay p {
+    font-size: 18px;
+    margin: 0;
+}
+
+.camera-overlay small {
+    font-size: 12px;
+    opacity: 0.6;
+}
+
+/* HUD Overlay */
+.hud-overlay {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-primary);
+    pointer-events: none;
+}
+
+.hud-item {
+    padding: 4px 10px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid var(--blue-primary);
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    text-shadow: 0 0 10px var(--blue-glow);
+}
+
+/* Buttons */
+.btn {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+}
+
+.btn-primary {
+    background: var(--blue-primary);
+    color: var(--bg-primary);
+    border: none;
+}
+
+.btn-primary:hover {
+    background: var(--blue-secondary);
+    box-shadow: 0 0 30px var(--blue-glow);
+    transform: translateY(-1px);
+}
+
+.btn-success {
+    background: var(--green-neon);
+    color: var(--bg-primary);
+    border: none;
+}
+
+.btn-success:hover {
+    box-shadow: 0 0 30px rgba(0, 255, 136, 0.3);
+    transform: translateY(-1px);
+}
+
+.btn-danger {
+    background: var(--red-neon);
+    color: #fff;
+    border: none;
+}
+
+.btn-danger:hover {
+    box-shadow: 0 0 30px rgba(255, 0, 68, 0.3);
+    transform: translateY(-1px);
+}
+
+.btn-warning {
+    background: var(--yellow-neon);
+    color: var(--bg-primary);
+    border: none;
+}
+
+.btn-warning:hover {
+    box-shadow: 0 0 30px rgba(255, 204, 0, 0.3);
+    transform: translateY(-1px);
+}
+
+.btn-info {
+    background: var(--purple-neon);
+    color: #fff;
+    border: none;
+}
+
+.btn-info:hover {
+    box-shadow: 0 0 30px rgba(136, 0, 255, 0.3);
+    transform: translateY(-1px);
+}
+
+.btn-sm {
+    padding: 4px 10px;
+    font-size: 10px;
+}
+
+/* Badges */
+.badge {
+    font-size: 9px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.badge-success {
+    background: var(--green-neon);
+    color: var(--bg-primary);
+}
+
+.badge-warning {
+    background: var(--yellow-neon);
+    color: var(--bg-primary);
+}
+
+.badge-danger {
+    background: var(--red-neon);
+    color: #fff;
+}
+
+/* Target Panel */
+.target-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.target-info > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.target-info label {
+    font-size: 9px;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.target-info span {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--blue-primary);
+    font-family: 'Courier New', monospace;
+}
+
+.target-status {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 12px;
+    border-radius: 12px;
+    text-transform: uppercase;
+}
+
+.target-status.active {
+    color: var(--green-neon);
+    border: 1px solid var(--green-neon);
+}
+
+.target-status.lost {
+    color: var(--red-neon);
+    border: 1px solid var(--red-neon);
+}
+
+.target-status.searching {
+    color: var(--yellow-neon);
+    border: 1px solid var(--yellow-neon);
+}
+
+.target-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+/* Robot Panel */
+.robot-panel .panel-body {
+    padding: 10px;
+}
+
+.robot-status-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+}
+
+.status-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.status-item label {
+    font-size: 9px;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.status-item span {
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'Courier New', monospace;
+}
+
+.state-idle { color: var(--text-secondary); }
+.state-following { color: var(--green-neon); }
+.state-turning { color: var(--yellow-neon); }
+.state-lost { color: var(--red-neon); }
+.state-searching { color: var(--yellow-neon); }
+
+/* Telemetry Panel */
+.telemetry-panel .panel-body {
+    padding: 8px;
+}
+
+.telemetry-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+}
+
+.telemetry-section h6 {
+    font-size: 11px;
+    color: var(--blue-primary);
+    margin: 0 0 5px;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 3px;
+}
+
+.telemetry-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    padding: 2px 0;
+}
+
+.telemetry-row span:first-child {
+    color: var(--text-secondary);
+}
+
+.telemetry-row span:last-child {
+    color: var(--text-primary);
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+}
+
+/* PID Tuning Panel */
+.tuning-panel .panel-body {
+    padding: 10px;
+}
+
+.tuning-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 15px;
+    margin-bottom: 10px;
+}
+
+.tuning-group h6 {
+    font-size: 11px;
+    color: var(--blue-primary);
+    margin: 0 0 5px;
+    text-transform: uppercase;
+}
+
+.tuning-group .form-group {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.tuning-group label {
+    width: 25px;
+    font-size: 10px;
+    color: var(--text-secondary);
+}
+
+.tuning-group input {
+    flex: 1;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 2px 5px;
+    font-size: 11px;
+    border-radius: 3px;
+    width: 60px;
+}
+
+.tuning-group input:focus {
+    outline: none;
+    border-color: var(--blue-primary);
+    box-shadow: 0 0 10px var(--blue-glow);
+}
+
+#btnApplyPID {
+    width: 100%;
+    margin-top: 5px;
+}
+
+/* Stat Panels */
+.stat-panel .panel-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 16px;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+
+.stat-item label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-item span {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--blue-primary);
+    font-family: 'Courier New', monospace;
+}
+
+/* Dataset Controls */
+.dataset-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.recording-status {
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.recording-status .fa-circle {
+    font-size: 8px;
+}
+
+.recording-status.recording .fa-circle {
+    color: var(--red-neon);
+    animation: blink 1s infinite;
+}
+
+/* Animations */
+@keyframes pulse-glow {
+    0%, 100% { text-shadow: 0 0 20px var(--blue-glow); }
+    50% { text-shadow: 0 0 40px var(--blue-glow), 0 0 80px var(--blue-glow); }
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+    .robot-status-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .telemetry-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .tuning-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 992px) {
+    .dashboard-header {
+        flex-direction: column;
+        gap: 12px;
+        text-align: center;
+    }
+    .header-left {
+        flex-direction: column;
+        text-align: center;
+    }
+    .header-right {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .target-info {
+        grid-template-columns: 1fr 1fr;
+    }
+    .telemetry-grid {
+        grid-template-columns: 1fr;
+    }
+    .tuning-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .dashboard-container {
+        padding: 8px;
+    }
+    .panel-header {
+        font-size: 10px;
+    }
+    .panel-body {
+        padding: 10px;
+    }
+    .stat-panel .panel-body {
+        grid-template-columns: 1fr;
+    }
+    .robot-status-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .target-actions {
+        flex-wrap: wrap;
+    }
+    .btn {
+        font-size: 10px;
+        padding: 4px 10px;
+    }
+    .camera-container {
+        min-height: 200px;
+    }
+}
+
+@media (max-width: 480px) {
+    .target-info {
+        grid-template-columns: 1fr;
+    }
+    .robot-status-grid {
+        grid-template-columns: 1fr;
+    }
+    .dataset-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

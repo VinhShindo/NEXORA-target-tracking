@@ -1,0 +1,51 @@
+camera:
+  id: 0
+  width: 640
+  height: 480
+  fps: 30
+  use_mjpeg: true
+
+display:
+  width: 1152
+  height: 864
+  scale_up: true
+  quality: 85
+  preserve_aspect_ratio: true
+
+detection:
+  model_path: ../weights/yolov8n_person.pt
+  confidence_threshold: 0.5
+  iou_threshold: 0.45
+  device: cpu
+  process_every_n_frames: 1
+  inference_size: 320  # Tăng cho accuracy
+
+tracking:
+  track_thresh: 0.4    # Giảm để bám tốt hơn
+  high_thresh: 0.6
+  match_thresh: 0.7    # Giảm để match nhiều hơn
+  frame_rate: 30
+
+robot:
+  frame_width: 640
+  frame_height: 480
+  pid:
+    kp: 0.05
+    ki: 0.001
+    kd: 0.01
+  distance_pid:
+    kp: 0.1
+    ki: 0.002
+    kd: 0.02
+  target_height: 150
+
+performance:
+  websocket:
+    frame_quality: 80
+    metrics_fps: 1
+  jpeg_quality: 85
+  resize_interpolation: linear
+
+esp32:
+  send_interval: 0.1
+  timeout: 1.0

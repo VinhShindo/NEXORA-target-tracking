@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXORA - AI Target Following Robot</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Main Container -->
+    <div class="dashboard-container">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="header-left">
+                <div class="logo">
+                    <i class="fas fa-robot"></i>
+                    <span>NEXORA</span>
+                </div>
+                <div class="header-title">
+                    <h1>AI TARGET FOLLOWING ROBOT</h1>
+                    <p>Realtime Monitoring System v2.1 - PID Control Ready</p>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="status-badge" id="connectionStatus">
+                    <i class="fas fa-circle"></i>
+                    <span>CONNECTED</span>
+                </div>
+                <div class="status-badge">
+                    <i class="fas fa-clock"></i>
+                    <span id="timeDisplay">00:00:00</span>
+                </div>
+                <div class="status-badge">
+                    <i class="fas fa-microchip"></i>
+                    <span id="fpsDisplay">FPS: 0</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="dashboard-main">
+            <!-- Row 1: Camera Feed + Side Panels -->
+            <div class="row g-3">
+                <!-- Camera Feed -->
+                <div class="col-lg-7">
+                    <div class="panel camera-panel">
+                        <div class="panel-header">
+                            <i class="fas fa-video"></i>
+                            <span>LIVE CAMERA FEED</span>
+                            <div class="panel-header-actions">
+                                <span class="badge badge-success" id="cameraStatus">CAMERA: ACTIVE</span>
+                                <span class="badge badge-warning" id="detectionStatus">DETECTION: OFF</span>
+                            </div>
+                        </div>
+                        <div class="panel-body camera-container">
+                            <img id="videoFeed" src="" alt="Camera Feed">
+                            <div class="camera-overlay" id="videoOverlay">
+                                <i class="fas fa-play-circle"></i>
+                                <p>START SYSTEM TO BEGIN</p>
+                                <small>Click Start Camera & Detection</small>
+                            </div>
+                            <!-- HUD Overlay -->
+                            <div class="hud-overlay">
+                                <div class="hud-item" id="hudFps">FPS: 0</div>
+                                <div class="hud-item" id="hudInference">INF: 0ms</div>
+                                <div class="hud-item" id="hudTargets">TARGETS: 0</div>
+                            </div>
+                            <!-- Click hint -->
+                            <div style="position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); 
+                                      background: rgba(0,0,0,0.7); color: #fff; padding: 4px 12px; 
+                                      border-radius: 4px; font-size: 11px; pointer-events: none; 
+                                      opacity: 0.7; white-space: nowrap;">
+                                💡 Click on any person to select as target
+                            </div>
+                        </div>
+                        <div class="panel-footer">
+                            <button class="btn btn-primary" id="btnStartCamera">
+                                <i class="fas fa-camera"></i> START CAMERA
+                            </button>
+                            <button class="btn btn-danger" id="btnStopCamera">
+                                <i class="fas fa-stop"></i> STOP
+                            </button>
+                            <button class="btn btn-success" id="btnStartDetection">
+                                <i class="fas fa-play"></i> DETECT
+                            </button>
+                            <button class="btn btn-warning" id="btnStopDetection">
+                                <i class="fas fa-pause"></i> STOP
+                            </button>
+                            <button class="btn btn-info" id="btnCapture">
+                                <i class="fas fa-camera-retro"></i> CAPTURE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Panels -->
+                <div class="col-lg-5">
+                    <!-- Target Panel -->
+                    <div class="panel target-panel">
+                        <div class="panel-header">
+                            <i class="fas fa-bullseye"></i>
+                            <span>TARGET STATUS</span>
+                            <span class="target-status" id="targetStatusBadge">IDLE</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="target-info">
+                                <div class="target-id">
+                                    <label>TARGET ID</label>
+                                    <span id="targetId">---</span>
+                                </div>
+                                <div class="target-class">
+                                    <label>CLASS</label>
+                                    <span id="targetClass">---</span>
+                                </div>
+                                <div class="target-confidence">
+                                    <label>CONFIDENCE</label>
+                                    <span id="targetConfidence">0%</span>
+                                </div>
+                                <div class="target-time">
+                                    <label>TRACKING TIME</label>
+                                    <span id="targetTime">0s</span>
+                                </div>
+                            </div>
+                            <div class="target-actions">
+                                <button class="btn btn-success btn-sm" id="btnSelectTarget">
+                                    <i class="fas fa-check"></i> SELECT
+                                </button>
+                                <button class="btn btn-danger btn-sm" id="btnReleaseTarget">
+                                    <i class="fas fa-times"></i> RELEASE
+                                </button>
+                                <button class="btn btn-primary btn-sm" id="btnStartFollow">
+                                    <i class="fas fa-play"></i> FOLLOW
+                                </button>
+                                <button class="btn btn-warning btn-sm" id="btnStopFollow">
+                                    <i class="fas fa-stop"></i> STOP
+                                </button>
+                            </div>
+                            <div style="margin-top: 8px; font-size: 11px; color: var(--text-secondary); text-align: center;">
+                                <i class="fas fa-mouse-pointer"></i> Click on video to select target
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Robot Control Panel -->
+                    <div class="panel robot-panel">
+                        <div class="panel-header">
+                            <i class="fas fa-microchip"></i>
+                            <span>ROBOT CONTROL</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="robot-status-grid">
+                                <div class="status-item">
+                                    <label>STATE</label>
+                                    <span id="robotState" class="state-idle">IDLE</span>
+                                </div>
+                                <div class="status-item">
+                                    <label>DIRECTION</label>
+                                    <span id="robotDirection">STOP</span>
+                                </div>
+                                <div class="status-item">
+                                    <label>SERVO ANGLE</label>
+                                    <span id="robotServo">90.0°</span>
+                                </div>
+                                <div class="status-item">
+                                    <label>MOTOR SPEED</label>
+                                    <span id="robotMotor">0.0</span>
+                                </div>
+                                <div class="status-item">
+                                    <label>ERROR X</label>
+                                    <span id="robotErrorX">0.0</span>
+                                </div>
+                                <div class="status-item">
+                                    <label>DIST ERROR</label>
+                                    <span id="robotDistError">0.0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Robot Telemetry Panel -->
+                    <div class="panel telemetry-panel mt-2">
+                        <div class="panel-header">
+                            <i class="fas fa-chart-line"></i>
+                            <span>ROBOT TELEMETRY</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="telemetry-grid">
+                                <div class="telemetry-section">
+                                    <h6>🎯 STEERING</h6>
+                                    <div class="telemetry-row"><span>Target Center X</span><span id="telemTargetX">-</span></div>
+                                    <div class="telemetry-row"><span>Frame Center X</span><span id="telemFrameX">-</span></div>
+                                    <div class="telemetry-row"><span>Error X</span><span id="telemErrorX">-</span></div>
+                                    <div class="telemetry-row"><span>PID Output</span><span id="telemSteerOut">-</span></div>
+                                    <div class="telemetry-row"><span>Servo Angle</span><span id="telemServo">-</span></div>
+                                </div>
+                                <div class="telemetry-section">
+                                    <h6>📏 DISTANCE</h6>
+                                    <div class="telemetry-row"><span>BBox Width</span><span id="telemBboxW">-</span></div>
+                                    <div class="telemetry-row"><span>BBox Height</span><span id="telemBboxH">-</span></div>
+                                    <div class="telemetry-row"><span>BBox Area</span><span id="telemBboxA">-</span></div>
+                                    <div class="telemetry-row"><span>Target Height</span><span id="telemTargetH">-</span></div>
+                                    <div class="telemetry-row"><span>Distance Error</span><span id="telemDistErr">-</span></div>
+                                    <div class="telemetry-row"><span>PID Output</span><span id="telemDistOut">-</span></div>
+                                    <div class="telemetry-row"><span>Motor Speed</span><span id="telemMotor">-</span></div>
+                                </div>
+                                <div class="telemetry-section">
+                                    <h6>⚙️ SYSTEM</h6>
+                                    <div class="telemetry-row"><span>Last Update</span><span id="telemLastUp">-</span></div>
+                                    <div class="telemetry-row"><span>FPS</span><span id="telemFPS">-</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PID Tuning Panel -->
+                    <div class="panel tuning-panel mt-2">
+                        <div class="panel-header">
+                            <i class="fas fa-sliders-h"></i>
+                            <span>PID TUNING</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="tuning-grid">
+                                <div class="tuning-group">
+                                    <h6>Steering PID</h6>
+                                    <div class="form-group">
+                                        <label>KP</label>
+                                        <input type="number" id="steerKp" step="0.001" value="0.05">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>KI</label>
+                                        <input type="number" id="steerKi" step="0.001" value="0.001">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>KD</label>
+                                        <input type="number" id="steerKd" step="0.001" value="0.01">
+                                    </div>
+                                </div>
+                                <div class="tuning-group">
+                                    <h6>Distance PID</h6>
+                                    <div class="form-group">
+                                        <label>KP</label>
+                                        <input type="number" id="distKp" step="0.001" value="0.1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>KI</label>
+                                        <input type="number" id="distKi" step="0.001" value="0.002">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>KD</label>
+                                        <input type="number" id="distKd" step="0.001" value="0.02">
+                                    </div>
+                                </div>
+                                <div class="tuning-group">
+                                    <h6>Target Height</h6>
+                                    <div class="form-group">
+                                        <label>PX</label>
+                                        <input type="number" id="targetHeight" step="1" value="150">
+                                    </div>
+                                </div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="btnApplyPID">
+                                <i class="fas fa-check"></i> APPLY PID
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 2: Statistics Panels -->
+            <div class="row g-3 mt-2">
+                <!-- Detection Stats -->
+                <div class="col-md-3">
+                    <div class="panel stat-panel">
+                        <div class="panel-header">
+                            <i class="fas fa-eye"></i>
+                            <span>DETECTION</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="stat-item">
+                                <label>PERSONS</label>
+                                <span id="statPersons">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>BALLS</label>
+                                <span id="statBalls">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>FPS</label>
+                                <span id="statFps">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>INFERENCE</label>
+                                <span id="statInference">0ms</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tracking Stats -->
+                <div class="col-md-3">
+                    <div class="panel stat-panel">
+                        <div class="panel-header">
+                            <i class="fas fa-crosshairs"></i>
+                            <span>TRACKING</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="stat-item">
+                                <label>TOTAL TRACKS</label>
+                                <span id="statTracks">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>ACTIVE</label>
+                                <span id="statActive">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>LOST</label>
+                                <span id="statLost">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>SELECTED</label>
+                                <span id="statSelected">---</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Stats -->
+                <div class="col-md-3">
+                    <div class="panel stat-panel">
+                        <div class="panel-header">
+                            <i class="fas fa-server"></i>
+                            <span>SYSTEM</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="stat-item">
+                                <label>CPU USAGE</label>
+                                <span id="statCpu">0%</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>RAM USAGE</label>
+                                <span id="statRam">0%</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>STORAGE</label>
+                                <span id="statStorage">0%</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>UPTIME</label>
+                                <span id="statUptime">00:00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dataset Stats -->
+                <div class="col-md-3">
+                    <div class="panel stat-panel">
+                        <div class="panel-header">
+                            <i class="fas fa-database"></i>
+                            <span>DATASET</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="stat-item">
+                                <label>IMAGES</label>
+                                <span id="statImages">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>VIDEOS</label>
+                                <span id="statVideos">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>STORAGE</label>
+                                <span id="statStorageUsed">0MB</span>
+                            </div>
+                            <div class="stat-item">
+                                <label>RECORDING</label>
+                                <span id="statRecording">OFF</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 3: Dataset Controls -->
+            <div class="row g-3 mt-2">
+                <div class="col-12">
+                    <div class="panel control-panel">
+                        <div class="panel-header">
+                            <i class="fas fa-database"></i>
+                            <span>DATASET COLLECTION</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="dataset-controls">
+                                <button class="btn btn-danger" id="btnRecordStart">
+                                    <i class="fas fa-circle"></i> START RECORDING
+                                </button>
+                                <button class="btn btn-warning" id="btnRecordStop" disabled>
+                                    <i class="fas fa-stop"></i> STOP
+                                </button>
+                                <button class="btn btn-success" id="btnExport">
+                                    <i class="fas fa-download"></i> EXPORT DATASET
+                                </button>
+                                <span class="recording-status" id="recordingStatus">
+                                    <i class="fas fa-circle" style="color: gray;"></i> RECORDING: OFF
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
