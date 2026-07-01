@@ -4,6 +4,7 @@ Professional Robotics Dashboard
 ULTRA OPTIMIZED - 26 FPS target
 FIXED: Data broadcasting
 UPDATED: PID Steering, PID Distance, Robot Telemetry, Logging
+MULTI-MODEL SUPPORT: Person, Ball, Both
 """
 
 import os
@@ -109,17 +110,41 @@ def load_config():
             'preserve_aspect_ratio': True
         },
         'detection': {
-            'model_path': str(BASE_DIR.parent / "weights" / "yolov8n_person.pt"),
+            'default_mode': 'both',
+            'models': {
+                'person': {
+                    'path': 'weights/yolov8n_person_lr001.pt',
+                    'classes': [0],
+                    'names': ['person'],
+                    'color': '#00ff88',
+                    'icon': '👤'
+                },
+                'ball': {
+                    'path': 'weights/yolov8n_ball.pt',
+                    'classes': [0],
+                    'names': ['ball'],
+                    'color': '#ff8800',
+                    'icon': '⚽'
+                },
+                'both': {
+                    'path': 'weights/yolov8n_person.pt',
+                    'classes': [0, 1],
+                    'names': ['person', 'ball'],
+                    'color': '#00d4ff',
+                    'icon': '🎯'
+                }
+            },
             'confidence_threshold': 0.5,
             'iou_threshold': 0.45,
             'device': 'cpu',
             'process_every_n_frames': 1,
-            'inference_size': 288
+            'inference_size': 320
         },
         'tracking': {
-            'track_thresh': 0.5,
+            'track_thresh': 0.4,
             'high_thresh': 0.6,
-            'match_thresh': 0.8
+            'match_thresh': 0.7,
+            'frame_rate': 30
         },
         'robot': {
             'frame_width': 640,
@@ -199,6 +224,9 @@ detection_service = DetectionService()
 tracking_service = TrackingService()
 dataset_service = DatasetService()
 
+# ===== LOAD MODELS FROM CONFIG =====
+detection_service.load_models(config.get('detection', {}))
+
 # Configure robot service with PID settings
 robot_config = config.get('robot', {})
 pid_config = {
@@ -230,12 +258,12 @@ detection_service.default_confidence = detection_config.get('confidence_threshol
 detection_service.default_iou = detection_config.get('iou_threshold', 0.45)
 detection_service.default_device = detection_config.get('device', 'cpu')
 detection_service.process_every_n_frames = detection_config.get('process_every_n_frames', 1)
-detection_service.inference_size = detection_config.get('inference_size', 288)
+detection_service.inference_size = detection_config.get('inference_size', 320)
 
 tracking_config = config.get('tracking', {})
-tracking_service.track_thresh = tracking_config.get('track_thresh', 0.5)
+tracking_service.track_thresh = tracking_config.get('track_thresh', 0.4)
 tracking_service.high_thresh = tracking_config.get('high_thresh', 0.6)
-tracking_service.match_thresh = tracking_config.get('match_thresh', 0.8)
+tracking_service.match_thresh = tracking_config.get('match_thresh', 0.7)
 
 robot_frame_width = robot_config.get('frame_width', 640)
 robot_frame_height = robot_config.get('frame_height', 480)
@@ -256,7 +284,9 @@ logger.info(f"[CONFIG] Inference size: {detection_service.inference_size}")
 logger.info(f"[CONFIG] JPEG quality: {jpeg_quality}")
 logger.info(f"[CONFIG] Steering PID: kp={robot_service.steering_pid.kp}, ki={robot_service.steering_pid.ki}, kd={robot_service.steering_pid.kd}")
 logger.info(f"[CONFIG] Distance PID: kp={robot_service.distance_pid.kp}, ki={robot_service.distance_pid.ki}, kd={robot_service.distance_pid.kd}")
-logger.info(f"[CONFIG] Target Height: {robot_service.target_height}")
+logger.info(f"[CONFIG] Target Height: {robot_service.get_telemetry().target_height}")  # Sửa lỗi tại đây
+logger.info(f"[CONFIG] Detection models: {list(detection_service.model_paths.keys())}")
+logger.info(f"[CONFIG] Current detection mode: {detection_service.current_mode}")
 
 # ============= GLOBAL STATE =============
 class AppState:
@@ -445,8 +475,10 @@ async def get_status():
         "fps": state.fps,
         "targets": len(state.tracks),
         "persons": state.total_persons,
+        "balls": state.total_balls,
         "selected_target": state.selected_target_id,
-        "esp32_connected": len(state.esp32_clients) > 0
+        "esp32_connected": len(state.esp32_clients) > 0,
+        "detection_mode": detection_service.current_mode
     }
 
 @app.get("/api/robot/status")
@@ -530,7 +562,7 @@ async def stop_detection():
     state.total_persons = 0
     state.total_balls = 0
     robot_service.stop()
-    tracking_service.reset()  # Reset tracker + unlock target
+    tracking_service.reset()
     detection_service.set_selected_target(None)
     logger.info("[STOP] Detection stopped, all tracks cleared")
     return {"success": True, "message": "Detection stopped, all cleared"}
@@ -557,41 +589,7 @@ async def release_target():
     state.is_following = False
     robot_service.stop()
     detection_service.set_selected_target(None)
-    
-    # UNLOCK target
     tracking_service.unlock_target()
-    
-    logger.info("[RELEASE] Target UNLOCKED")
-    return {"success": True, "message": "Target released"}
-
-@app.post("/api/detection/stop")
-async def stop_detection():
-    """Dừng detection và xóa tất cả tracks + target"""
-    state.is_detecting = False
-    state.is_following = False
-    state.tracks = []
-    state.detections = []
-    state.current_target = None
-    state.selected_target_id = None
-    state.total_persons = 0
-    state.total_balls = 0
-    robot_service.stop()
-    tracking_service.reset()  # Reset tracker + unlock target
-    detection_service.set_selected_target(None)
-    logger.info("[STOP] Detection stopped, all tracks cleared")
-    return {"success": True, "message": "Detection stopped, all cleared"}
-
-@app.post("/api/target/release")
-async def release_target():
-    """Hủy target và xóa lock"""
-    state.selected_target_id = None
-    state.is_following = False
-    robot_service.stop()
-    detection_service.set_selected_target(None)
-    
-    # UNLOCK target
-    tracking_service.unlock_target()
-    
     logger.info("[RELEASE] Target UNLOCKED")
     return {"success": True, "message": "Target released"}
 
@@ -679,12 +677,9 @@ async def get_config():
             "preserve_aspect_ratio": preserve_aspect_ratio
         },
         "detection": {
-            "model_path": detection_service.default_model_path,
-            "confidence_threshold": detection_service.default_confidence,
-            "iou_threshold": detection_service.default_iou,
-            "device": detection_service.default_device,
-            "process_every_n_frames": detection_service.process_every_n_frames,
-            "inference_size": detection_service.inference_size
+            "current_mode": detection_service.current_mode,
+            "available_modes": detection_service.get_available_modes(),
+            "model_status": detection_service.get_model_status()
         },
         "robot": {
             "frame_width": robot_frame_width,
@@ -699,7 +694,7 @@ async def get_config():
                 "ki": robot_service.distance_pid.ki,
                 "kd": robot_service.distance_pid.kd
             },
-            "target_height": robot_service.target_height
+            "target_height": robot_service.get_telemetry().target_height
         },
         "esp32": {
             "send_interval": esp32_send_interval,
@@ -801,6 +796,52 @@ async def send_stop_command():
     state.esp32_command_time = time.time()
     return {'success': True, 'message': 'Emergency stop sent'}
 
+# ============= DETECTION MODE API =============
+@app.get("/api/detection/modes")
+async def get_detection_modes():
+    """Lấy danh sách các mode có sẵn và trạng thái"""
+    return {
+        "current_mode": detection_service.current_mode,
+        "available_modes": detection_service.get_available_modes(),
+        "model_status": detection_service.get_model_status(),
+        "loading_status": detection_service.get_loading_status(),
+        "performance": detection_service.get_performance_stats()
+    }
+
+@app.post("/api/detection/mode")
+async def set_detection_mode(request: Request):
+    """Chuyển đổi chế độ detection: person, ball, both"""
+    try:
+        data = await request.json()
+        mode = data.get('mode')
+        
+        if not mode:
+            raise HTTPException(status_code=400, detail="Mode is required")
+        
+        if mode not in detection_service.get_available_modes():
+            raise HTTPException(status_code=400, detail=f"Mode {mode} not available")
+        
+        success = detection_service.switch_mode(mode)
+        if success:
+            # Reset tracker khi đổi mode
+            tracking_service.reset()
+            return {
+                "success": True, 
+                "message": f"Switched to {mode} mode",
+                "current_mode": mode
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to switch mode")
+            
+    except Exception as e:
+        logger.error(f"Switch mode error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/detection/loading")
+async def get_detection_loading():
+    """Lấy trạng thái loading model"""
+    return detection_service.get_loading_status()
+
 # ============= WEBSOCKET ENDPOINTS =============
 @app.websocket("/ws")
 async def websocket_legacy(websocket: WebSocket):
@@ -875,7 +916,8 @@ async def websocket_metrics(websocket: WebSocket):
                 'dataset': dataset_service.get_stats(),
                 'detection_enabled': state.is_detecting,
                 'following_enabled': state.is_following,
-                'esp32_connected': len(state.esp32_clients) > 0
+                'esp32_connected': len(state.esp32_clients) > 0,
+                'detection_mode': detection_service.current_mode
             }
             await websocket.send_text(json.dumps(metrics_data))
     except WebSocketDisconnect:
@@ -940,16 +982,13 @@ def fast_resize_with_aspect_ratio(image, target_width, target_height):
 
 async def process_and_broadcast():
     """Main processing loop with PID control and telemetry"""
-    process_interval = detection_service.process_every_n_frames
     frame_counter = 0
     scale_width = display_width
     scale_height = display_height
     jpeg_quality = config.get('performance', {}).get('jpeg_quality', 85)
     
-    # Biến để theo dõi target cũ
-    last_known_target = None
-    target_lost_counter = 0
-    max_target_lost = 30  # Giữ target tối đa 30 frame khi mất
+    # Điều chỉnh lại mục tiêu FPS xuống 24 để tránh quá tải CPU
+    state.target_fps = 24
     
     logger.info(f"[DISPLAY] Scaling from {camera_service.default_width}x{camera_service.default_height} to {scale_width}x{scale_height}")
     
@@ -978,17 +1017,32 @@ async def process_and_broadcast():
                 state.frame_count = 0
                 state.last_frame_time = current_time
             
-            # LUÔN tạo bản copy của frame để vẽ
             annotated_frame = frame.copy()
             
-            # Detection (chỉ chạy mỗi process_interval frames)
+            # ==============================================================
+            # TỐI ƯU CPU: Chiến lược Dynamic Adaptive Interval
+            # Khi ít người, interval = 2 (YOLO chạy 15fps) -> FPS hiển thị 24-26
+            # Khi đông người, interval = 3 (YOLO chạy 10fps) -> FPS hiển thị 17-19
+            # ==============================================================
+            current_track_count = len(state.tracks)
+            target_interval = 2  # Mặc định cách 1 frame (1/2 tốc độ)
+            
+            if current_track_count > 4:
+                target_interval = 3  # Quá đông, chỉ detect 1/3 số frame
+                
+            # Chỉ gán nếu khác biệt để đỡ tốn tài nguyên
+            if detection_service.process_every_n_frames != target_interval:
+                detection_service.set_process_interval(target_interval)
+            
+            process_interval = detection_service.process_every_n_frames
+            # ================================================================
+
             if state.is_detecting and detection_service.is_model_loaded:
                 should_detect = (frame_counter % process_interval == 0)
                 
                 if should_detect:
                     try:
                         start_time = time.perf_counter()
-                        # CHỈ detect, KHÔNG vẽ
                         detections = detection_service.detect(frame)
                         state.inference_time = (time.perf_counter() - start_time) * 1000
                         
@@ -1000,7 +1054,10 @@ async def process_and_broadcast():
                             state.last_tracks = tracks
                         else:
                             if state.tracks:
-                                state.tracks = tracking_service.predict(frame)
+                                try:
+                                    state.tracks = tracking_service.predict(frame)
+                                except Exception as e:
+                                    logger.error(f"Predict error: {e}")
                             state.detection_updated = False
                         
                         state.latest_frame = annotated_frame
@@ -1008,7 +1065,7 @@ async def process_and_broadcast():
                     except Exception as e:
                         logger.error(f"Detection error: {e}")
                 else:
-                    # Frame không detect: predict
+                    # Frame không detect: Kalman dự đoán (giữ mượt video)
                     if state.tracks:
                         try:
                             state.tracks = tracking_service.predict(frame)
@@ -1025,19 +1082,16 @@ async def process_and_broadcast():
                 state.total_persons = 0
                 state.total_balls = 0
             
-            # ============= ROBOT PID CONTROL (CHẠY LIÊN TỤC) =============
+            # ============= ROBOT PID CONTROL =============
             if state.selected_target_id is not None:
-                # Luôn tìm target đã lock trước
                 locked_id = tracking_service.get_locked_target_id()
                 
                 if locked_id is not None:
-                    # Có target đã lock, tìm trong tracks
                     target_track = tracking_service.get_track_by_id(locked_id)
                     
                     if target_track and target_track.get('bbox'):
-                        # Tìm thấy target đã lock
                         state.current_target = target_track
-                        state.selected_target_id = locked_id  # Đảm bảo sync
+                        state.selected_target_id = locked_id
                         
                         if state.is_following:
                             try:
@@ -1053,7 +1107,6 @@ async def process_and_broadcast():
                         
                         state.latest_target = target_track
                     else:
-                        # Target bị mất nhưng vẫn lock, tracking service sẽ tự re-id
                         state.current_target = None
                         state.latest_target = None
                         
@@ -1063,7 +1116,6 @@ async def process_and_broadcast():
                             except Exception as e:
                                 logger.error(f"Target lost error: {e}")
                 else:
-                    # Không có lock, dùng target_id thông thường
                     target_track = tracking_service.get_track_by_id(state.selected_target_id)
                     
                     if target_track and target_track.get('bbox'):
@@ -1128,7 +1180,6 @@ async def process_and_broadcast():
                     encode_param = [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality]
                     _, buffer = cv2.imencode('.jpg', display_frame, encode_param)
                     
-                    # Build target info
                     target_info = None
                     if state.selected_target_id is not None and state.current_target:
                         track = state.current_target
@@ -1140,7 +1191,6 @@ async def process_and_broadcast():
                             'bbox': track.get('bbox')
                         }
                     
-                    # Build tracks data
                     tracks_data = []
                     for t in state.tracks[:20]:
                         tracks_data.append({
@@ -1152,10 +1202,8 @@ async def process_and_broadcast():
                             'lost': t.get('lost', 0)
                         })
                     
-                    # Robot telemetry
                     robot_telemetry = dataclasses.asdict(robot_service.get_telemetry())
                     
-                    # Frame data
                     frame_data = {
                         'type': 'frame',
                         'fps': state.fps,
@@ -1178,12 +1226,11 @@ async def process_and_broadcast():
                         'esp32_connected': len(state.esp32_clients) > 0,
                         'timestamp': time.time(),
                         'detection_enabled': state.is_detecting,
-                        'following_enabled': state.is_following
+                        'following_enabled': state.is_following,
+                        'detection_mode': detection_service.current_mode
                     }
                     
                     json_str = json.dumps(frame_data)
-                    
-                    # Broadcast to all clients
                     disconnected = set()
                     for client in state.frame_clients:
                         try:
@@ -1192,14 +1239,13 @@ async def process_and_broadcast():
                         except Exception:
                             disconnected.add(client)
                     
-                    # Clean up disconnected clients
                     for client in disconnected:
                         state.frame_clients.discard(client)
                         
                 except Exception as e:
                     logger.error(f"Broadcast error: {e}")
             
-            # Dynamic sleep
+            # Dynamic sleep (Mục tiêu 24 FPS để CPU không bị ép quá mức)
             loop_time = time.perf_counter() - start_loop
             state.frame_times.append(loop_time)
             target_frame_time = 1.0 / state.target_fps
@@ -1241,72 +1287,52 @@ async def esp32_broadcast_loop():
                 
                 # ===== TẠO JSON TỐI ƯU CHO ESP32 =====
                 command = {
-                    # ===== THÔNG TIN ĐIỀU KHIỂN =====
                     'type': 'control',
-                    'timestamp': int(time.time() * 1000),  # milliseconds
+                    'timestamp': int(time.time() * 1000),
                     'command_id': int(time.time() * 1000),
-                    
-                    # ===== TRẠNG THÁI THEO DÕI =====
                     'is_following': state.is_following,
                     'target_detected': target_info is not None,
                     'target_id': state.selected_target_id,
                     'targets_count': len(state.tracks),
-                    
-                    # ===== DỮ LIỆU ĐIỀU KHIỂN (QUAN TRỌNG NHẤT) =====
                     'control': {
-                        # Điều khiển động cơ (Motor)
-                        'motor_speed': round(telemetry.motor_speed, 1),        # -100.0 -> 100.0
-                        'linear_velocity': round(robot_status.get('linear_velocity', 0), 3),  # m/s
-                        'angular_velocity': round(robot_status.get('angular_velocity', 0), 3), # rad/s
-                        
-                        # Điều khiển servo
-                        'servo_angle': round(telemetry.servo_angle, 1),        # 45.0 -> 135.0 độ
-                        
-                        # Hướng di chuyển
-                        'direction': robot_status.get('direction', 'STOP'),    # FORWARD, TURN_LEFT, TURN_RIGHT, STOP
-                        'state': robot_status.get('state', 'IDLE'),           # IDLE, FOLLOWING, SEARCHING, etc.
+                        'motor_speed': round(telemetry.motor_speed, 1),
+                        'linear_velocity': round(robot_status.get('linear_velocity', 0), 3),
+                        'angular_velocity': round(robot_status.get('angular_velocity', 0), 3),
+                        'servo_angle': round(telemetry.servo_angle, 1),
+                        'direction': robot_status.get('direction', 'STOP'),
+                        'state': robot_status.get('state', 'IDLE'),
                     },
-                    
-                    # ===== THÔNG TIN LỖI (PID) =====
                     'error': {
-                        'steering_error': round(telemetry.error_x, 2),        # Lệch tâm (pixels)
-                        'distance_error': round(telemetry.distance_error, 2),  # Lệch khoảng cách (pixels)
+                        'steering_error': round(telemetry.error_x, 2),
+                        'distance_error': round(telemetry.distance_error, 2),
                         'pid_steering': round(telemetry.pid_steering_output, 3),
                         'pid_distance': round(telemetry.pid_distance_output, 3),
                     },
-                    
-                    # ===== THÔNG TIN TARGET =====
                     'target': {
                         'id': target_info.get('id') if target_info else None,
                         'class': target_info.get('class') if target_info else None,
                         'confidence': round(target_info.get('confidence', 0), 2) if target_info else 0,
                         'bbox_center': [
-                            round(target_info.get('bbox', [0,0,0,0])[0] + target_info.get('bbox', [0,0,0,0])[2]) / 2 if target_info else 0,
-                            round(target_info.get('bbox', [0,0,0,0])[1] + target_info.get('bbox', [0,0,0,0])[3]) / 2 if target_info else 0
-                        ] if target_info else [0, 0],
+                            round((target_info.get('bbox', [0,0,0,0])[0] + target_info.get('bbox', [0,0,0,0])[2]) / 2, 1) if target_info else 0,
+                            round((target_info.get('bbox', [0,0,0,0])[1] + target_info.get('bbox', [0,0,0,0])[3]) / 2, 1) if target_info else 0
+                        ],
                         'bbox_height': round(telemetry.bbox_height, 1) if target_info else 0,
                         'bbox_width': round(telemetry.bbox_width, 1) if target_info else 0,
                     },
-                    
-                    # ===== KHOẢNG CÁCH =====
                     'distance': round(robot_status.get('distance', 0), 2),
-                    
-                    # ===== THÔNG TIN HỆ THỐNG =====
                     'system': {
                         'fps': round(state.fps, 1),
                         'inference_time': round(state.inference_time, 1),
-                        'esp32_connected': len(state.esp32_clients) > 0
+                        'esp32_connected': len(state.esp32_clients) > 0,
+                        'detection_mode': detection_service.current_mode
                     }
                 }
                 
-                # Lưu command cuối cùng
                 state.last_esp32_command = command
                 state.esp32_command_time = time.time()
                 
-                # Chuyển thành JSON và gửi
                 message = json.dumps(command)
                 
-                # Gửi đến tất cả ESP32 clients
                 disconnected = set()
                 for client in list(state.esp32_clients):
                     try:
@@ -1315,7 +1341,6 @@ async def esp32_broadcast_loop():
                         logger.error(f"[ESP32] Send error: {e}")
                         disconnected.add(client)
                 
-                # Xóa client đã disconnect
                 for client in disconnected:
                     state.esp32_clients.discard(client)
             

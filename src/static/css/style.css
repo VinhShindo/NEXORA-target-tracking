@@ -159,6 +159,10 @@ body {
     margin-top: 0.5rem !important;
 }
 
+.mb-2 {
+    margin-bottom: 0.5rem !important;
+}
+
 .panel:hover {
     border-color: var(--border-glow);
     box-shadow: var(--shadow-glow);
@@ -267,6 +271,7 @@ body {
     font-weight: 500;
     color: var(--text-primary);
     pointer-events: none;
+    flex-wrap: wrap;
 }
 
 .hud-item {
@@ -426,13 +431,18 @@ body {
     border: 1px solid var(--yellow-neon);
 }
 
+.target-status.idle {
+    color: var(--text-secondary);
+    border: 1px solid var(--text-secondary);
+}
+
 .target-actions {
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
 }
 
-/* Robot Panel */
+/* Robot Panel (Legacy) */
 .robot-panel .panel-body {
     padding: 10px;
 }
@@ -468,7 +478,7 @@ body {
 .state-lost { color: var(--red-neon); }
 .state-searching { color: var(--yellow-neon); }
 
-/* Telemetry Panel */
+/* Telemetry Panel (Legacy) */
 .telemetry-panel .panel-body {
     padding: 8px;
 }
@@ -612,6 +622,170 @@ body {
     animation: blink 1s infinite;
 }
 
+/* Model Selector */
+.model-selector {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    flex-wrap: wrap;
+}
+
+.model-selector-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.model-btn-group {
+    display: flex;
+    gap: 4px;
+}
+
+.model-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.model-btn:hover {
+    border-color: var(--blue-primary);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+}
+
+.model-btn.active {
+    background: var(--blue-primary);
+    border-color: var(--blue-primary);
+    color: var(--bg-primary);
+    box-shadow: 0 0 20px var(--blue-glow);
+}
+
+.model-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.model-btn .model-icon {
+    font-size: 12px;
+}
+
+.model-btn .model-name {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.model-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-secondary);
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    transition: all 0.3s ease;
+}
+
+.status-dot.ready {
+    background: var(--green-neon);
+    box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+}
+
+.status-dot.loading {
+    background: var(--yellow-neon);
+    animation: blink 0.5s infinite;
+}
+
+.status-dot.error {
+    background: var(--red-neon);
+}
+
+/* Loading Overlay */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    backdrop-filter: blur(8px);
+}
+
+.loading-content {
+    text-align: center;
+    padding: 40px 48px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    min-width: 320px;
+    box-shadow: 0 0 60px rgba(0, 212, 255, 0.1);
+}
+
+.loading-spinner {
+    width: 60px;
+    height: 60px;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--blue-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 16px;
+}
+
+.loading-text {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+}
+
+.loading-progress-bar {
+    width: 100%;
+    height: 6px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.loading-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--blue-secondary), var(--blue-primary));
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.loading-percent {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--blue-primary);
+}
+
 /* Animations */
 @keyframes pulse-glow {
     0%, 100% { text-shadow: 0 0 20px var(--blue-glow); }
@@ -621,6 +795,10 @@ body {
 @keyframes blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }
 
 @keyframes slideIn {
@@ -634,7 +812,104 @@ body {
     }
 }
 
-/* Responsive */
+/* ===== MỚI: STEERING GAUGE & DISTANCE GAUGE ===== */
+.steering-gauge-container, .distance-gauge-container {
+    width: 100%;
+    padding: 12px 0;
+    position: relative;
+}
+.gauge-track {
+    position: relative;
+    width: 100%;
+    height: 18px;
+    background: var(--bg-secondary);
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+}
+.gauge-zone {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.gauge-zone .gauge-label {
+    font-size: 8px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.9);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    z-index: 2;
+}
+.gauge-marker {
+    position: absolute;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    background: var(--blue-primary);
+    border: 2px solid #fff;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 15px var(--blue-glow);
+    z-index: 10;
+    transition: left 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* STEERING ZONES */
+.left-zone {
+    left: 0;
+    width: 30%;
+    background: rgba(255, 0, 68, 0.35); /* Đỏ nhạt */
+}
+.center-zone {
+    left: 30%;
+    width: 40%;
+    background: rgba(0, 255, 136, 0.35); /* Xanh lá */
+}
+.right-zone {
+    left: 70%;
+    width: 30%;
+    background: rgba(255, 204, 0, 0.35); /* Vàng nhạt */
+}
+
+/* DISTANCE ZONES */
+.too-close-zone {
+    left: 0;
+    width: 25%;
+    background: rgba(255, 0, 68, 0.35); /* Đỏ */
+}
+.optimal-zone {
+    left: 25%;
+    width: 50%;
+    background: rgba(0, 255, 136, 0.35); /* Xanh lá */
+}
+.too-far-zone {
+    left: 75%;
+    width: 25%;
+    background: rgba(255, 204, 0, 0.35); /* Vàng */
+}
+
+/* STATUS STATE BADGE (Dynamic Colors) */
+#steerStateVal.ok { background: var(--green-neon); color: #000; }
+#steerStateVal.warning { background: var(--yellow-neon); color: #000; }
+#steerStateVal.critical { background: var(--red-neon); color: #fff; }
+
+/* UTILITY CLASSES */
+.fs-1 { font-size: 2.5rem !important; }
+.fs-3 { font-size: 1.75rem !important; }
+.cursor-pointer { cursor: pointer; }
+details summary { outline: none; cursor: pointer; }
+details summary::-webkit-details-marker { display: none; }
+
+/* RESPONSIVE TWEAKS */
+@media (max-width: 768px) {
+    .fs-1 { font-size: 2.0rem !important; }
+    .fs-3 { font-size: 1.3rem !important; }
+    .gauge-label { font-size: 6px !important; }
+}
+
 @media (max-width: 1200px) {
     .robot-status-grid {
         grid-template-columns: 1fr 1fr;
@@ -698,6 +973,13 @@ body {
     .camera-container {
         min-height: 200px;
     }
+    .model-selector {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .model-status { 
+        margin-left: 0;
+    }
 }
 
 @media (max-width: 480px) {
@@ -710,5 +992,8 @@ body {
     .dataset-controls {
         flex-direction: column;
         align-items: stretch;
+    }
+    .model-btn-group {
+        flex-wrap: wrap;
     }
 }

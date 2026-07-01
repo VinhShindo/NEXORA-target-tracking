@@ -1,6 +1,6 @@
 /**
  * NEXORA - AI Target Following Robot Dashboard
- * FIXED: Complete data display for all panels
+ * Multi Model Support - Person, Ball, Both
  */
 
 class NexoraDashboard {
@@ -45,7 +45,7 @@ class NexoraDashboard {
             targetTime: document.getElementById('targetTime'),
             targetStatusBadge: document.getElementById('targetStatusBadge'),
             
-            // Robot Control
+            // Robot Control (Legacy - Giữ lại để tương thích)
             robotState: document.getElementById('robotState'),
             robotDirection: document.getElementById('robotDirection'),
             robotServo: document.getElementById('robotServo'),
@@ -64,22 +64,7 @@ class NexoraDashboard {
             hudFps: document.getElementById('hudFps'),
             hudInference: document.getElementById('hudInference'),
             hudTargets: document.getElementById('hudTargets'),
-            
-            // Telemetry
-            telemTargetX: document.getElementById('telemTargetX'),
-            telemFrameX: document.getElementById('telemFrameX'),
-            telemErrorX: document.getElementById('telemErrorX'),
-            telemSteerOut: document.getElementById('telemSteerOut'),
-            telemServo: document.getElementById('telemServo'),
-            telemBboxW: document.getElementById('telemBboxW'),
-            telemBboxH: document.getElementById('telemBboxH'),
-            telemBboxA: document.getElementById('telemBboxA'),
-            telemTargetH: document.getElementById('telemTargetH'),
-            telemDistErr: document.getElementById('telemDistErr'),
-            telemDistOut: document.getElementById('telemDistOut'),
-            telemMotor: document.getElementById('telemMotor'),
-            telemFPS: document.getElementById('telemFPS'),
-            telemLastUp: document.getElementById('telemLastUp'),
+            hudModel: document.getElementById('hudModel'),
             
             // PID Tuning
             steerKp: document.getElementById('steerKp'),
@@ -88,7 +73,49 @@ class NexoraDashboard {
             distKp: document.getElementById('distKp'),
             distKi: document.getElementById('distKi'),
             distKd: document.getElementById('distKd'),
-            targetHeight: document.getElementById('targetHeight')
+            targetHeight: document.getElementById('targetHeight'),
+
+            // ===== NEW STEERING ELEMENTS =====
+            steerDir: document.getElementById('steerDir'),
+            steerErrorVal: document.getElementById('steerErrorVal'),
+            steerServoVal: document.getElementById('steerServoVal'),
+            steerStateVal: document.getElementById('steerStateVal'),
+            steerGaugeMarker: document.getElementById('steerGaugeMarker'),
+            steerKpVal: document.getElementById('steerKpVal'),
+            steerKiVal: document.getElementById('steerKiVal'),
+            steerKdVal: document.getElementById('steerKdVal'),
+            steerPidOut: document.getElementById('steerPidOut'),
+            steerFrameX: document.getElementById('steerFrameX'),
+            steerTargetX: document.getElementById('steerTargetX'),
+
+            // ===== NEW DISTANCE ELEMENTS =====
+            distRealVal: document.getElementById('distRealVal'),
+            distDesiredVal: document.getElementById('distDesiredVal'),
+            distErrorVal: document.getElementById('distErrorVal'),
+            distMotionVal: document.getElementById('distMotionVal'),
+            distMotorVal: document.getElementById('distMotorVal'),
+            distGaugeMarker: document.getElementById('distGaugeMarker'),
+            distKpVal: document.getElementById('distKpVal'),
+            distKiVal: document.getElementById('distKiVal'),
+            distKdVal: document.getElementById('distKdVal'),
+            distPidOut: document.getElementById('distPidOut'),
+            distBboxA: document.getElementById('distBboxA'),
+            distBboxH: document.getElementById('distBboxH'),
+
+            // Loading
+            loadingOverlay: document.getElementById('loadingOverlay'),
+            loadingProgress: document.getElementById('loadingProgress'),
+            loadingPercent: document.getElementById('loadingPercent'),
+            loadingText: document.getElementById('loadingText'),
+            modelStatusDot: document.getElementById('modelStatusDot'),
+            modelStatusText: document.getElementById('modelStatusText')
+        };
+
+        // Model Selection
+        this.modelButtons = {
+            both: document.getElementById('modelBoth'),
+            person: document.getElementById('modelPerson'),
+            ball: document.getElementById('modelBall')
         };
 
         this.initializeEventListeners();
@@ -97,6 +124,8 @@ class NexoraDashboard {
         this.startUptime();
         this.initializeVideoClick();
         this.startFpsCounter();
+        this.initializeModelSelector();
+        this.checkModelStatus();
         
         console.log('[DASHBOARD] Initialized');
     }
@@ -159,6 +188,169 @@ class NexoraDashboard {
         });
     }
 
+    // ===== MODEL SELECTION =====
+    initializeModelSelector() {
+        Object.entries(this.modelButtons).forEach(([mode, btn]) => {
+            btn?.addEventListener('click', () => this.switchModel(mode));
+        });
+    }
+
+    async switchModel(mode) {
+        try {
+            // Disable buttons
+            Object.values(this.modelButtons).forEach(btn => {
+                if (btn) btn.disabled = true;
+            });
+            
+            // Show loading
+            this.showLoading(true, `Loading ${mode} model...`);
+            
+            // Call API to switch mode
+            const response = await fetch('/api/detection/mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: mode })
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to switch mode');
+            }
+            
+            const result = await response.json();
+            
+            // Update UI
+            this.updateModelButtons(mode);
+            this.updateModelStatus('loading', 'Loading...');
+            
+            // Poll for loading status
+            this.pollLoadingStatus(mode);
+            
+        } catch (error) {
+            console.error('Switch model error:', error);
+            this.showNotification('Failed to switch model', 'error');
+            this.updateModelStatus('error', 'Error');
+            this.showLoading(false);
+        } finally {
+            Object.values(this.modelButtons).forEach(btn => {
+                if (btn) btn.disabled = false;
+            });
+        }
+    }
+
+    async pollLoadingStatus(mode) {
+        const maxAttempts = 60;
+        let attempts = 0;
+        
+        const checkStatus = setInterval(async () => {
+            try {
+                const response = await fetch('/api/detection/loading');
+                const status = await response.json();
+                
+                // Update progress
+                if (this.elements.loadingProgress) {
+                    this.elements.loadingProgress.style.width = `${status.progress}%`;
+                }
+                if (this.elements.loadingPercent) {
+                    this.elements.loadingPercent.textContent = `${status.progress}%`;
+                }
+                
+                let text = 'Loading model...';
+                if (status.progress < 30) text = 'Initializing model...';
+                else if (status.progress < 70) text = 'Loading weights...';
+                else if (status.progress < 90) text = 'Optimizing model...';
+                else text = 'Finalizing...';
+                if (this.elements.loadingText) this.elements.loadingText.textContent = text;
+                
+                if (status.is_loaded) {
+                    clearInterval(checkStatus);
+                    this.showLoading(false);
+                    this.updateModelButtons(mode);
+                    this.updateModelStatus('ready', `${mode} ready`);
+                    this.showNotification(`Switched to ${mode} mode`, 'success');
+                    
+                    // Update HUD
+                    if (this.elements.hudModel) {
+                        this.elements.hudModel.textContent = `MODEL: ${mode.toUpperCase()}`;
+                    }
+                    
+                    // Reset detection
+                    this.currentTracks = [];
+                    this.selectedTargetId = null;
+                }
+                
+                if (status.is_loading === false && !status.is_loaded) {
+                    clearInterval(checkStatus);
+                    this.showLoading(false);
+                    this.updateModelStatus('error', 'Load failed');
+                    this.showNotification('Model loading failed', 'error');
+                }
+                
+                attempts++;
+                if (attempts > maxAttempts) {
+                    clearInterval(checkStatus);
+                    this.showLoading(false);
+                    this.updateModelStatus('error', 'Timeout');
+                    this.showNotification('Model loading timeout', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Poll loading error:', error);
+                clearInterval(checkStatus);
+            }
+        }, 500);
+    }
+
+    updateModelButtons(mode) {
+        Object.entries(this.modelButtons).forEach(([key, btn]) => {
+            if (btn) {
+                btn.classList.toggle('active', key === mode);
+            }
+        });
+    }
+
+    updateModelStatus(state, text) {
+        if (!this.elements.modelStatusDot || !this.elements.modelStatusText) return;
+        this.elements.modelStatusDot.className = `status-dot ${state}`;
+        this.elements.modelStatusText.textContent = text;
+    }
+
+    showLoading(show, text = 'Loading...') {
+        if (!this.elements.loadingOverlay) return;
+        if (show) {
+            this.elements.loadingOverlay.style.display = 'flex';
+            if (this.elements.loadingText) this.elements.loadingText.textContent = text;
+            if (this.elements.loadingProgress) this.elements.loadingProgress.style.width = '0%';
+            if (this.elements.loadingPercent) this.elements.loadingPercent.textContent = '0%';
+        } else {
+            this.elements.loadingOverlay.style.display = 'none';
+        }
+    }
+
+    async checkModelStatus() {
+        try {
+            const response = await fetch('/api/detection/modes');
+            const data = await response.json();
+            
+            if (data.current_mode) {
+                this.updateModelButtons(data.current_mode);
+                this.updateModelStatus('ready', `${data.current_mode} ready`);
+                
+                if (this.elements.hudModel) {
+                    this.elements.hudModel.textContent = `MODEL: ${data.current_mode.toUpperCase()}`;
+                }
+            }
+            
+            if (data.loading_status && data.loading_status.is_loading) {
+                this.showLoading(true, `Loading ${data.loading_status.current_mode} model...`);
+                this.pollLoadingStatus(data.loading_status.current_mode);
+            }
+            
+        } catch (error) {
+            console.error('Check model status error:', error);
+        }
+    }
+
+    // ===== WEBSOCKET =====
     connectWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/frame`;
@@ -256,6 +448,7 @@ class NexoraDashboard {
         }, 1000);
     }
 
+    // ===== UPDATE METHODS =====
     updateStatistics(data) {
         const stats = data.statistics || {};
         const tracks = data.tracks || [];
@@ -308,54 +501,106 @@ class NexoraDashboard {
         }
     }
 
-    updateRobotPanel(data) {
-        const robot = data.robot || {};
-        
-        const stateMap = {
-            'IDLE': 'IDLE', 'FOLLOWING': 'FOLLOWING',
-            'TURN LEFT': 'TURN LEFT', 'TURN RIGHT': 'TURN RIGHT',
-            'STOP': 'STOP', 'SEARCHING': 'SEARCHING',
-            'TARGET LOST': 'TARGET LOST'
-        };
-
-        const state = stateMap[robot.state] || robot.state || 'IDLE';
-        if (this.elements.robotState) {
-            this.elements.robotState.textContent = state;
-            this.elements.robotState.className = `state-${state.toLowerCase().replace(' ', '-')}`;
-        }
-        if (this.elements.robotDirection) this.elements.robotDirection.textContent = robot.direction || 'STOP';
-        if (this.elements.robotServo) this.elements.robotServo.textContent = robot.servo_angle != null ? `${robot.servo_angle}°` : '90.0°';
-        if (this.elements.robotMotor) this.elements.robotMotor.textContent = robot.motor_speed != null ? robot.motor_speed.toFixed(1) : '0.0';
-        if (this.elements.robotErrorX) this.elements.robotErrorX.textContent = robot.offset_x != null ? robot.offset_x.toFixed(2) : '0.00';
-        
-        const telem = data.robot_telemetry || {};
-        if (this.elements.robotDistError) this.elements.robotDistError.textContent = telem.distance_error != null ? telem.distance_error.toFixed(2) : '0.00';
-    }
-
+    // ===== UPDATE ROBOT TELEMETRY (Technical/Debug) =====
     updateRobotTelemetry(telem) {
         if (!telem) return;
         
-        // Steering
-        if (this.elements.telemTargetX) this.elements.telemTargetX.textContent = telem.target_center_x?.toFixed(1) ?? '-';
-        if (this.elements.telemFrameX) this.elements.telemFrameX.textContent = telem.frame_center_x?.toFixed(1) ?? '-';
-        if (this.elements.telemErrorX) this.elements.telemErrorX.textContent = telem.error_x?.toFixed(2) ?? '-';
-        if (this.elements.telemSteerOut) this.elements.telemSteerOut.textContent = telem.pid_steering_output?.toFixed(3) ?? '-';
-        if (this.elements.telemServo) this.elements.telemServo.textContent = telem.servo_angle != null ? telem.servo_angle.toFixed(1) + '°' : '-';
+        // STEERING TECHNICAL (PID & Debug)
+        if (this.elements.steerPidOut) this.elements.steerPidOut.textContent = telem.pid_steering_output?.toFixed(3) ?? '0.000';
+        if (this.elements.steerTargetX) this.elements.steerTargetX.textContent = telem.target_center_x?.toFixed(1) ?? '0.0';
+        if (this.elements.steerFrameX) this.elements.steerFrameX.textContent = telem.frame_center_x?.toFixed(1) ?? '320.0';
+
+        // DISTANCE TECHNICAL (PID & Debug)
+        if (this.elements.distPidOut) this.elements.distPidOut.textContent = telem.pid_distance_output?.toFixed(3) ?? '0.000';
+        if (this.elements.distBboxA) this.elements.distBboxA.textContent = Math.round(telem.bbox_area ?? 0);
+        if (this.elements.distBboxH) this.elements.distBboxH.textContent = telem.bbox_height?.toFixed(1) ?? '0.0';
+
+        // Legacy compatibility (Remove if you don't need)
+        // Left as is for safety.
+    }
+
+    // ===== UPDATE ROBOT PANEL (Operational & Gauges) =====
+    updateRobotPanel(data) {
+        const robot = data.robot || {};
+        const telem = data.robot_telemetry || {};
         
-        // Distance
-        if (this.elements.telemBboxW) this.elements.telemBboxW.textContent = telem.bbox_width?.toFixed(1) ?? '-';
-        if (this.elements.telemBboxH) this.elements.telemBboxH.textContent = telem.bbox_height?.toFixed(1) ?? '-';
-        if (this.elements.telemBboxA) this.elements.telemBboxA.textContent = telem.bbox_area?.toFixed(0) ?? '-';
-        if (this.elements.telemTargetH) this.elements.telemTargetH.textContent = telem.target_height ?? '-';
-        if (this.elements.telemDistErr) this.elements.telemDistErr.textContent = telem.distance_error?.toFixed(2) ?? '-';
-        if (this.elements.telemDistOut) this.elements.telemDistOut.textContent = telem.pid_distance_output?.toFixed(3) ?? '-';
-        if (this.elements.telemMotor) this.elements.telemMotor.textContent = telem.motor_speed?.toFixed(1) ?? '-';
+        // 1. ROBOT STATE & DIRECTION (Với icon)
+        const stateMap = {
+            'IDLE': {text: 'IDLE', cls: 'secondary'},
+            'FOLLOWING': {text: 'FOLLOWING', cls: 'success'},
+            'TURN LEFT': {text: 'TURN LEFT', cls: 'warning'},
+            'TURN RIGHT': {text: 'TURN RIGHT', cls: 'warning'},
+            'STOP': {text: 'STOP', cls: 'secondary'},
+            'SEARCHING': {text: 'SEARCHING', cls: 'warning'},
+            'TARGET LOST': {text: 'TARGET LOST', cls: 'danger'}
+        };
+        const currentState = stateMap[robot.state] || stateMap['IDLE'];
         
-        // System
-        if (this.elements.telemFPS) this.elements.telemFPS.textContent = telem.fps?.toFixed(1) ?? '-';
-        if (this.elements.telemLastUp && telem.last_update) {
-            this.elements.telemLastUp.textContent = new Date(telem.last_update * 1000).toLocaleTimeString();
+        if (this.elements.steerStateVal) {
+            this.elements.steerStateVal.textContent = currentState.text;
+            this.elements.steerStateVal.className = `badge fs-6 px-3 py-2 ${currentState.cls === 'success' ? 'ok' : currentState.cls === 'warning' ? 'warning' : currentState.cls === 'danger' ? 'critical' : 'bg-secondary text-light'}`;
         }
+
+        // Direction Icon
+        if (this.elements.steerDir) {
+            const dir = robot.direction || 'STOP';
+            let icon = '⏸️';
+            if (dir === 'FORWARD') icon = '⬆️';
+            else if (dir === 'TURN LEFT') icon = '↙️';
+            else if (dir === 'TURN RIGHT') icon = '↘️';
+            else if (dir === 'BACKWARD') icon = '⬇️';
+            this.elements.steerDir.textContent = icon;
+        }
+
+        // 2. STEERING OUTPUT (Servo & Error)
+        const servo = (robot.servo_angle != null) ? robot.servo_angle : 90.0;
+        const errorX = robot.offset_x ?? 0.0;
+        if (this.elements.steerServoVal) this.elements.steerServoVal.textContent = servo.toFixed(1) + '°';
+        if (this.elements.steerErrorVal) this.elements.steerErrorVal.textContent = errorX.toFixed(0);
+        this.updateSteeringGauge(servo);
+
+        // 3. DISTANCE OUTPUT (Distance & Motor Speed)
+        const motorSpeed = robot.motor_speed ?? 0.0;
+        const realDist = robot.distance ?? 0.0;
+        const errorDist = telem.distance_error ?? 0.0;
+        const desiredDist = telem.target_height ?? 150; // Convert roughly for display
+
+        if (this.elements.distRealVal) this.elements.distRealVal.textContent = realDist.toFixed(2) + 'm';
+        if (this.elements.distDesiredVal) this.elements.distDesiredVal.textContent = (desiredDist * 0.0133).toFixed(2) + 'm'; // Mapping 150px to ~2.0m roughly
+        if (this.elements.distErrorVal) this.elements.distErrorVal.textContent = errorDist.toFixed(1);
+        if (this.elements.distMotorVal) this.elements.distMotorVal.textContent = motorSpeed.toFixed(0) + '%';
+        
+        // Motion direction
+        if (this.elements.distMotionVal) {
+            if (motorSpeed > 5) this.elements.distMotionVal.textContent = 'FORWARD ➡️';
+            else if (motorSpeed < -5) this.elements.distMotionVal.textContent = 'BACKWARD ⬅️';
+            else this.elements.distMotionVal.textContent = 'STOP ⏸️';
+        }
+        this.updateDistanceGauge(realDist);
+    }
+
+    // ==== CẬP NHẬT STEERING GAUGE =====
+    updateSteeringGauge(servoAngle) {
+        const marker = this.elements.steerGaugeMarker;
+        if (!marker) return;
+        // Servo chạy từ 45° (trái) đến 135° (phải). Chuẩn hóa về 0% - 100%
+        const minServo = 45;
+        const maxServo = 135;
+        const clamped = Math.max(minServo, Math.min(maxServo, servoAngle));
+        const percent = ((clamped - minServo) / (maxServo - minServo)) * 100;
+        marker.style.left = percent + '%';
+    }
+
+    // ==== CẬP NHẬT DISTANCE GAUGE =====
+    updateDistanceGauge(realDist) {
+        const marker = this.elements.distGaugeMarker;
+        if (!marker) return;
+        // Giả sử thang đo từ 0m đến 5m. Chuẩn hóa về 0% - 100%
+        const minDist = 0.0;
+        const maxDist = 5.0;
+        const clamped = Math.max(minDist, Math.min(maxDist, realDist));
+        const percent = ((clamped - minDist) / (maxDist - minDist)) * 100;
+        marker.style.left = percent + '%';
     }
 
     updateHUD(data) {
@@ -382,6 +627,7 @@ class NexoraDashboard {
         }
     }
 
+    // ===== CONNECTION =====
     updateConnectionStatus(connected) {
         const el = this.elements.connectionStatus;
         if (!el) return;
@@ -394,6 +640,7 @@ class NexoraDashboard {
         }
     }
 
+    // ===== TIME =====
     updateTime() {
         const now = new Date();
         const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
@@ -411,6 +658,7 @@ class NexoraDashboard {
         }, 1000);
     }
 
+    // ===== NOTIFICATION =====
     showNotification(message, type = 'info') {
         const oldNotifications = document.querySelectorAll('.notification');
         oldNotifications.forEach(n => n.remove());
@@ -422,7 +670,7 @@ class NexoraDashboard {
         notification.innerHTML = `${icons[type]} ${message}`;
         notification.style.cssText = `
             position: fixed; top: 80px; right: 20px; padding: 14px 24px;
-            border-radius: 8px; font-weight: 600; font-size: 14px; z-index: 9999;
+            border-radius: 8px; font-weight: 600; font-size: 14px; z-index: 99999;
             animation: slideIn 0.3s ease; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             ${type === 'success' ? 'background: #00ff88; color: #000;' : ''}
             ${type === 'error' ? 'background: #ff0044; color: #fff;' : ''}
@@ -438,6 +686,7 @@ class NexoraDashboard {
         }, 3000);
     }
 
+    // ===== API CALLS =====
     async apiCall(endpoint, method = 'POST', data = null) {
         try {
             const options = {
@@ -457,7 +706,7 @@ class NexoraDashboard {
 
     async startCamera() {
         try {
-            const result = await this.apiCall('/camera/start', 'POST', {camera_id:1, width:640, height:480, fps:30});
+            const result = await this.apiCall('/camera/start', 'POST', {camera_id:0, width:640, height:480, fps:30});
             if (result.success) {
                 if (this.elements.cameraStatus) { this.elements.cameraStatus.textContent = 'CAMERA: ACTIVE'; this.elements.cameraStatus.className = 'badge badge-success'; }
                 this.showNotification('Camera started', 'success');

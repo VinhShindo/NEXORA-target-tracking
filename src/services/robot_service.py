@@ -1,5 +1,7 @@
 """
-Robot Service - Thêm bộ lọc nhiễu cho bbox ổn định
+Robot Service - Cải tiến khoảng cách với bộ lọc phối cảnh (Perspective + Area + Y-Center)
+GIẢI QUYẾT VẤN ĐỀ: Camera cao 50cm dẫn đến sai lệch khoảng cách khi người đi ngang.
+Sử dụng diện tích bbox và sự thay đổi tâm Y để điều khiển tiến/lùi chính xác.
 """
 
 import logging
@@ -30,7 +32,7 @@ class RobotTelemetry:
     target_id: Optional[int] = None
     tracking_state: str = "IDLE"
     error_x: float = 0.0
-    distance_error: float = 0.0
+    distance_error: float = 0.0 # Sai số khoảng cách ước lượng
     servo_angle: float = 90.0
     motor_speed: float = 0.0
     bbox_height: float = 0.0
@@ -42,9 +44,10 @@ class RobotTelemetry:
     frame_center_y: float = 240.0
     pid_steering_output: float = 0.0
     pid_distance_output: float = 0.0
+    estimated_distance: float = 0.0 # Khoảng cách thực tế tính ra mét
     fps: float = 0.0
     last_update: float = 0.0
-    target_height: float = 150.0
+    target_height: float = 150.0  # Giữ lại cho tương thích
 
 class RobotService:
     """Service for robot control with PID steering and distance"""
@@ -52,10 +55,14 @@ class RobotService:
     def __init__(self, config: Optional[Dict] = None):
         self.steering_pid = SteeringPID()
         self.distance_pid = DistancePID()
-        self.target_height = 150
+        
+        # ==== BIẾN MỚI CHO KHOẢNG CÁCH CHÍNH XÁC ====
+        self.target_pixel_area = 4000.0   # Diện tích bbox mục tiêu (khi đạt khoảng cách mong muốn)
+        self.distance_k_factor = 25000.0  # Hệ số chuyển đổi từ Pixel sang Met (Cần tinh chỉnh khi setup)
+        self.target_real_distance = 2.0   # Khoảng cách mong muốn (mét)
         
         self.telemetry = RobotTelemetry()
-        self.telemetry.target_height = self.target_height
+        self.telemetry.target_height = self.target_pixel_area
         
         self.state = RobotState.IDLE
         self.direction = "STOP"
@@ -66,35 +73,33 @@ class RobotService:
         self.angular_velocity = 0.0
         self.max_linear = 0.5
         self.max_angular = 1.0
-        self.desired_distance = 2.0
         self.min_distance = 0.5
         self.max_distance = 5.0
         
         # ===== BỘ LỌC NHIỄU =====
-        # Lọc trung bình động cho bbox
-        self.bbox_buffer: deque = deque(maxlen=5)  # Lưu 5 frame gần nhất
+        self.bbox_buffer: deque = deque(maxlen=5)
+        self.area_buffer: deque = deque(maxlen=5)    # Mới: Lưu diện tích
         self.center_buffer: deque = deque(maxlen=5)
-        self.height_buffer: deque = deque(maxlen=5)
-        self.width_buffer: deque = deque(maxlen=5)
         
-        # Ngưỡng thay đổi tối thiểu (deadzone)
-        self.deadzone_steering = 2.0  # Pixels - bỏ qua thay đổi nhỏ hơn này
-        self.deadzone_distance = 3.0  # Pixels - bỏ qua thay đổi nhỏ hơn này
+        # Deadzone mới dựa trên Area
+        self.deadzone_area = 200.0    # Bỏ qua nhiễu diện tích nhỏ hơn 200 pixel
         
-        # Lọc Kalman đơn giản cho vị trí
-        self.smooth_factor = 0.3  # Trọng số cho giá trị mới (0.1-0.5)
+        self.smooth_factor = 0.3
+        self.smoothed_area = 0.0
         self.smoothed_center_x = 0.0
         self.smoothed_center_y = 0.0
         self.smoothed_height = 0.0
         self.smoothed_width = 0.0
         
-        # Giới hạn thay đổi tối đa mỗi frame (chống nhảy)
-        self.max_change_center = 50.0  # Pixels
-        self.max_change_height = 30.0  # Pixels
+        # Lưu frame trước để tính delta Y (quan trọng cho camera 50cm)
+        self.prev_center_y = 0.0
+        self.delta_center_y = 0.0
         
-        # Chế độ ổn định
+        self.max_change_center = 50.0
+        self.max_change_area = 5000.0  # Giới hạn thay đổi diện tích mỗi frame
+        
         self.stability_mode = True
-        self.stability_threshold = 0.5  # Giảm tốc độ khi target gần ổn định
+        self.stability_threshold = 0.5
         
         if config:
             self._apply_config(config)
@@ -110,14 +115,12 @@ class RobotService:
         self.distance_pid.ki = dist_cfg.get('ki', 0.002)
         self.distance_pid.kd = dist_cfg.get('kd', 0.02)
         
-        self.target_height = config.get('target_height', 150)
-        self.telemetry.target_height = self.target_height
+        # Lấy cấu hình mới nếu có
+        self.target_pixel_area = config.get('target_pixel_area', 4000.0)
+        self.distance_k_factor = config.get('distance_k_factor', 25000.0)
+        self.target_real_distance = config.get('target_real_distance', 2.0)
+        self.deadzone_area = config.get('deadzone_area', 200.0)
         
-        # Thêm config cho bộ lọc
-        self.deadzone_steering = config.get('deadzone_steering', 2.0)
-        self.deadzone_distance = config.get('deadzone_distance', 3.0)
-        self.smooth_factor = config.get('smooth_factor', 0.3)
-    
     def update_pid_params(self, steering=None, distance=None, target_height=None):
         if steering:
             if 'kp' in steering: self.steering_pid.kp = steering['kp']
@@ -130,7 +133,8 @@ class RobotService:
             if 'kd' in distance: self.distance_pid.kd = distance['kd']
             self.distance_pid.reset()
         if target_height is not None:
-            self.target_height = target_height
+            # Có thể dùng target_height cũ để set area, nhưng ta giữ lại k_factor
+            self.target_pixel_area = target_height * 1.2
             self.telemetry.target_height = target_height
     
     def start_following(self):
@@ -138,37 +142,25 @@ class RobotService:
         self.telemetry.tracking_state = "FOLLOWING"
         self.steering_pid.reset()
         self.distance_pid.reset()
-        # Reset buffers
         self.bbox_buffer.clear()
+        self.area_buffer.clear()
         self.center_buffer.clear()
-        self.height_buffer.clear()
-        self.width_buffer.clear()
     
-    def _smooth_value(self, new_value: float, smoothed_value: float) -> float:
-        """Lọc làm mịn giá trị"""
-        # Giới hạn thay đổi tối đa
-        if abs(new_value - smoothed_value) > self.max_change_center and smoothed_value > 0:
-            if new_value > smoothed_value:
-                new_value = smoothed_value + self.max_change_center
-            else:
-                new_value = smoothed_value - self.max_change_center
+    def _smooth_value(self, new_value: float, smoothed_value: float, max_change: float = None) -> float:
+        if max_change is None:
+            max_change = self.max_change_center
         
-        # Lọc trung bình động (EMA)
+        if abs(new_value - smoothed_value) > max_change and smoothed_value > 0:
+            if new_value > smoothed_value:
+                new_value = smoothed_value + max_change
+            else:
+                new_value = smoothed_value - max_change
+        
         if smoothed_value == 0:
             return new_value
         return smoothed_value * (1 - self.smooth_factor) + new_value * self.smooth_factor
-    
-    def _apply_deadzone(self, error: float, deadzone: float) -> float:
-        """Áp dụng deadzone để bỏ qua nhiễu nhỏ"""
-        if abs(error) < deadzone:
-            return 0.0
-        # Giảm dần để chuyển mượt
-        if abs(error) < deadzone * 2:
-            return error - np.sign(error) * deadzone
-        return error
-    
+
     def update_target(self, track, frame_width, frame_height, fps=0.0):
-        """Update target info với bộ lọc nhiễu"""
         now = time.time()
         self.telemetry.last_update = now
         self.telemetry.fps = fps
@@ -182,127 +174,140 @@ class RobotService:
         bbox = track['bbox']
         x1, y1, x2, y2 = bbox
         
-        # Raw values từ detection
         raw_center_x = (x1 + x2) / 2.0
         raw_center_y = (y1 + y2) / 2.0
         raw_bbox_width = x2 - x1
         raw_bbox_height = y2 - y1
+        raw_bbox_area = raw_bbox_width * raw_bbox_height
         
-        # ===== ÁP DỤNG BỘ LỌC =====
-        # Lưu vào buffer
+        # ===== LỌC NHIỄU & LÀM MỊN =====
         self.bbox_buffer.append(bbox)
+        self.area_buffer.append(raw_bbox_area)
         self.center_buffer.append([raw_center_x, raw_center_y])
-        self.height_buffer.append(raw_bbox_height)
-        self.width_buffer.append(raw_bbox_width)
         
-        # Lấy giá trị trung bình từ buffer (Median filter)
-        if len(self.height_buffer) >= 3:
-            # Dùng median để loại bỏ outlier
-            heights = sorted(self.height_buffer)
-            widths = sorted(self.width_buffer)
+        # Median filter cho Area (ít nhạy cảm hơn height)
+        if len(self.area_buffer) >= 3:
+            areas = sorted(self.area_buffer)
             centers_x = sorted([c[0] for c in self.center_buffer])
             centers_y = sorted([c[1] for c in self.center_buffer])
             
-            # Lấy median (giá trị giữa)
-            median_height = heights[len(heights)//2]
-            median_width = widths[len(widths)//2]
+            median_area = areas[len(areas)//2]
             median_center_x = centers_x[len(centers_x)//2]
             median_center_y = centers_y[len(centers_y)//2]
+            median_height = sorted([self.height_buffer[i] for i in range(len(self.height_buffer))]) if self.height_buffer else raw_bbox_height
+            # Dùng area cho mịn hơn
         else:
-            median_height = raw_bbox_height
-            median_width = raw_bbox_width
+            median_area = raw_bbox_area
             median_center_x = raw_center_x
             median_center_y = raw_center_y
+            median_height = raw_bbox_height
         
-        # EMA smoothing
-        if self.smoothed_height == 0:
-            self.smoothed_height = median_height
-            self.smoothed_width = median_width
+        # EMA Smooth
+        if self.smoothed_area == 0:
+            self.smoothed_area = median_area
             self.smoothed_center_x = median_center_x
             self.smoothed_center_y = median_center_y
+            self.smoothed_height = median_height
+            self.smoothed_width = raw_bbox_width
         else:
-            self.smoothed_height = self._smooth_value(median_height, self.smoothed_height)
-            self.smoothed_width = self._smooth_value(median_width, self.smoothed_width)
+            self.smoothed_area = self._smooth_value(median_area, self.smoothed_area, self.max_change_area)
             self.smoothed_center_x = self._smooth_value(median_center_x, self.smoothed_center_x)
             self.smoothed_center_y = self._smooth_value(median_center_y, self.smoothed_center_y)
+            self.smoothed_height = self._smooth_value(median_height, self.smoothed_height)
+            self.smoothed_width = self._smooth_value(raw_bbox_width, self.smoothed_width)
         
-        # Lưu giá trị đã lọc
-        target_center_x = self.smoothed_center_x
-        target_center_y = self.smoothed_center_y
-        bbox_width = self.smoothed_width
-        bbox_height = self.smoothed_height
+        # ===== ƯỚC LƯỢNG KHOẢNG CÁCH THỰC TẾ (Perspective Transform) =====
+        # D = K / sqrt(Area)
+        if self.smoothed_area > 100:
+            self.estimated_distance = self.distance_k_factor / np.sqrt(self.smoothed_area)
+        else:
+            self.estimated_distance = self.max_distance
         
-        # Cập nhật telemetry với giá trị đã lọc
         self.telemetry.target_id = track.get('track_id')
-        self.telemetry.target_center_x = target_center_x
-        self.telemetry.target_center_y = target_center_y
-        self.telemetry.bbox_width = bbox_width
-        self.telemetry.bbox_height = bbox_height
-        self.telemetry.bbox_area = bbox_width * bbox_height
+        self.telemetry.target_center_x = self.smoothed_center_x
+        self.telemetry.target_center_y = self.smoothed_center_y
+        self.telemetry.bbox_width = self.smoothed_width
+        self.telemetry.bbox_height = self.smoothed_height
+        self.telemetry.bbox_area = self.smoothed_area
+        self.telemetry.estimated_distance = self.estimated_distance
+        self.telemetry.target_height = self.target_pixel_area  # Cập nhật đồng bộ
         
-        # Tính error
-        error_x = target_center_x - self.telemetry.frame_center_x
-        distance_error = self.target_height - bbox_height
+        # ===== LẤY DELTA Y (ĐỂ XÁC ĐỊNH XU HƯỚNG TIẾN/LÙI) =====
+        if self.prev_center_y > 0:
+            self.delta_center_y = self.smoothed_center_y - self.prev_center_y
+        self.prev_center_y = self.smoothed_center_y
         
-        # ===== ÁP DỤNG DEADZONE =====
-        error_x_filtered = self._apply_deadzone(error_x, self.deadzone_steering)
-        distance_error_filtered = self._apply_deadzone(distance_error, self.deadzone_distance)
+        # ===== PID STEERING (ĐIỀU KHIỂN RẼ) =====
+        error_x = self.smoothed_center_x - self.telemetry.frame_center_x
+        if abs(error_x) < 2: error_x = 0.0 # Deadzone rẽ
         
-        self.telemetry.error_x = error_x_filtered
-        self.telemetry.distance_error = distance_error_filtered
-        
-        # ===== PID OUTPUT =====
-        steering_output = self.steering_pid.update(error_x_filtered)
-        distance_output = self.distance_pid.update(distance_error_filtered)
-        
+        steering_output = self.steering_pid.update(error_x)
+        self.telemetry.error_x = error_x
         self.telemetry.pid_steering_output = steering_output
-        self.telemetry.pid_distance_output = distance_output
         
-        # ===== CHẾ ĐỘ ỔN ĐỊNH =====
-        # Nếu error nhỏ, giảm tốc độ để tránh rung
-        if abs(error_x_filtered) < 5 and abs(distance_error_filtered) < 5:
-            stability_factor = 0.3  # Giảm 70% tốc độ khi ổn định
-            steering_output *= stability_factor
-            distance_output *= stability_factor
-        
-        # ===== SERVO ANGLE =====
         servo_angle = max(45.0, min(135.0, 90.0 + steering_output))
         self.telemetry.servo_angle = servo_angle
         
-        # ===== MOTOR SPEED =====
+        # ===== PID DISTANCE (ĐIỀU KHIỂN TIẾN/LÙI) - DỰA VÀO DIỆN TÍCH =====
+        # Sai số diện tích: Tiến nếu area < target_area, lùi nếu area > target_area
+        error_area = self.target_pixel_area - self.smoothed_area
+        
+        # Điều chỉnh error dựa trên Delta Y (Camera cao 50cm sẽ giúp rất nhiều)
+        # Nếu area nhỏ nhưng delta Y dương (người đang đi xuống dưới) -> đang tiến nhanh
+        if self.delta_center_y > 5.0:
+            error_area *= 1.5  # Tăng tốc tiến lên
+        elif self.delta_center_y < -5.0:
+            error_area *= 0.5  # Giảm tốc (vì người đang đi ngang/lùi)
+
+        if abs(error_area) < self.deadzone_area:
+            error_area = 0.0
+            
+        distance_output = self.distance_pid.update(error_area)
+        self.telemetry.distance_error = error_area
+        self.telemetry.pid_distance_output = distance_output
+        
+        # Điều chỉnh motor speed
         motor_speed = max(-100.0, min(100.0, distance_output))
         self.telemetry.motor_speed = motor_speed
         
         self.is_target_lost = False
         self.telemetry.tracking_state = "FOLLOWING"
         
-        # ===== DIRECTION STATE =====
-        threshold = 15  # Giảm threshold để ổn định hơn
-        if abs(error_x_filtered) < threshold:
+        # ===== CHẾ ĐỘ ỔN ĐỊNH STABILITY FACTOR =====
+        if abs(error_x) < 5 and abs(error_area) < 100:
+            stability_factor = 0.3
+            steering_output *= stability_factor
+            motor_speed *= stability_factor
+        
+        # ===== XÁC ĐỊNH HƯỚNG DI CHUYỂN =====
+        threshold = 15
+        if abs(error_x) < threshold:
             self.direction = "FORWARD"
             self.state = RobotState.FOLLOWING
-        elif error_x_filtered > 0:
+        elif error_x > 0:
             self.direction = "TURN RIGHT"
             self.state = RobotState.TURN_RIGHT
         else:
             self.direction = "TURN LEFT"
             self.state = RobotState.TURN_LEFT
-        
-        # ===== VELOCITY =====
+            
+        # ===== TÍNH VẬN TỐC XE =====
         if motor_speed > 0:
             self.linear_velocity = self.max_linear * (motor_speed / 100.0)
         elif motor_speed < 0:
             self.linear_velocity = -self.max_linear * (abs(motor_speed) / 100.0)
         else:
             self.linear_velocity = 0.0
-        
+            
         self.angular_velocity = max(-self.max_angular, min(self.max_angular, -steering_output * 0.01))
         
-        if bbox_height > 0:
-            self.estimated_distance = min(self.max_distance, max(self.min_distance, self.max_distance / bbox_height))
-    
+        # Cập nhật buffer chiều cao để phục vụ cho median filter
+        self.height_buffer.append(self.smoothed_height)
+        if len(self.height_buffer) > 5: self.height_buffer.popleft()
+        self.width_buffer.append(self.smoothed_width)
+        if len(self.width_buffer) > 5: self.width_buffer.popleft()
+
     def _set_lost_state(self):
-        """Set robot to lost target state"""
         self.is_target_lost = True
         self.state = RobotState.TARGET_LOST
         self.telemetry.tracking_state = "TARGET LOST"
@@ -313,21 +318,25 @@ class RobotService:
         self.telemetry.motor_speed = 0.0
         self.telemetry.target_center_x = 0.0
         self.telemetry.target_center_y = 0.0
+        self.telemetry.bbox_area = 0.0
+        self.telemetry.estimated_distance = 0.0
+        self.telemetry.target_height = self.target_pixel_area
         self.direction = "STOP"
         self.linear_velocity = 0.0
         self.angular_velocity = 0.0
-        # Reset buffers khi mất target
         self.bbox_buffer.clear()
+        self.area_buffer.clear()
         self.center_buffer.clear()
         self.height_buffer.clear()
         self.width_buffer.clear()
+        self.smoothed_area = 0
         self.smoothed_height = 0
         self.smoothed_width = 0
         self.smoothed_center_x = 0
         self.smoothed_center_y = 0
+        self.prev_center_y = 0
     
     def handle_target_lost(self):
-        """Xử lý khi mất target"""
         self.is_target_lost = True
         self.state = RobotState.SEARCHING
         self.telemetry.tracking_state = "SEARCHING"
@@ -374,9 +383,7 @@ class RobotService:
         self.telemetry.frame_center_y = height // 2
     
     def draw_overlay(self, frame: np.ndarray) -> np.ndarray:
-        if frame is None:
-            return frame
-        
+        if frame is None: return frame
         try:
             t = self.telemetry
             h, w = frame.shape[:2]
@@ -399,6 +406,7 @@ class RobotService:
                     f"ERR_X: {t.error_x:.1f}",
                     f"SERVO: {t.servo_angle:.1f}",
                     f"MOTOR: {t.motor_speed:.1f}",
+                    f"DIST(m): {t.estimated_distance:.2f}", # Thêm khoảng cách thực tế
                     f"FPS: {t.fps:.1f}"
                 ]
                 for i, txt in enumerate(texts):
@@ -409,5 +417,4 @@ class RobotService:
                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         except Exception as e:
             pass
-        
         return frame

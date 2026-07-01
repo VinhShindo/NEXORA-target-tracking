@@ -13,17 +13,40 @@ display:
   preserve_aspect_ratio: true
 
 detection:
-  model_path: ../weights/yolov8n_person.pt
+  default_mode: "both"
+  
+  models:
+    person:
+      path: weights/yolov8n_person_lr001.pt
+      classes: [0]
+      names: ['person']
+      color: '#00ff88'
+      icon: '👤'
+      
+    ball:
+      path: weights/yolov8n_ball.pt
+      classes: [32]
+      names: ['ball']
+      color: '#ff8800'
+      icon: '⚽'
+      
+    both:
+      path: weights/yolov8n_person.pt
+      classes: [0, 32]
+      names: ['person', 'ball']
+      color: '#00d4ff'
+      icon: '🎯'
+      
   confidence_threshold: 0.5
   iou_threshold: 0.45
   device: cpu
   process_every_n_frames: 1
-  inference_size: 320  # Tăng cho accuracy
+  inference_size: 320
 
 tracking:
-  track_thresh: 0.4    # Giảm để bám tốt hơn
+  track_thresh: 0.4
   high_thresh: 0.6
-  match_thresh: 0.7    # Giảm để match nhiều hơn
+  match_thresh: 0.7
   frame_rate: 30
 
 robot:
