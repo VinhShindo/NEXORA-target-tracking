@@ -57,9 +57,10 @@ robot:
     ki: 0.001
     kd: 0.01
   distance_pid:
-    kp: 0.1
+    kp: 50.0
     ki: 0.002
     kd: 0.02
+  target_distance: 1.0
   target_height: 150
 
 performance:

@@ -346,4 +346,4 @@ class DetectionService:
                 'path': str(path),
                 'current': mode == self.current_mode
             }
-        return status
+        return status   

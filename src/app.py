@@ -232,7 +232,7 @@ robot_config = config.get('robot', {})
 pid_config = {
     'steering_pid': robot_config.get('pid', {}),
     'distance_pid': robot_config.get('distance_pid', {}),
-    'target_height': robot_config.get('target_height', 150)
+    'target_distance': robot_config.get('target_distance', 1.0)
 }
 robot_service = RobotService(pid_config)
 
@@ -284,7 +284,7 @@ logger.info(f"[CONFIG] Inference size: {detection_service.inference_size}")
 logger.info(f"[CONFIG] JPEG quality: {jpeg_quality}")
 logger.info(f"[CONFIG] Steering PID: kp={robot_service.steering_pid.kp}, ki={robot_service.steering_pid.ki}, kd={robot_service.steering_pid.kd}")
 logger.info(f"[CONFIG] Distance PID: kp={robot_service.distance_pid.kp}, ki={robot_service.distance_pid.ki}, kd={robot_service.distance_pid.kd}")
-logger.info(f"[CONFIG] Target Height: {robot_service.get_telemetry().target_height}")  # Sửa lỗi tại đây
+logger.info(f"[CONFIG] Target Distance: {robot_service.target_distance} m")
 logger.info(f"[CONFIG] Detection models: {list(detection_service.model_paths.keys())}")
 logger.info(f"[CONFIG] Current detection mode: {detection_service.current_mode}")
 
@@ -661,6 +661,7 @@ async def get_dataset_stats():
 
 @app.get("/api/config")
 async def get_config():
+    # Lấy PID thực tế từ robot_service thay vì từ config
     return {
         "camera": {
             "id": camera_service.default_camera_id,
@@ -694,7 +695,7 @@ async def get_config():
                 "ki": robot_service.distance_pid.ki,
                 "kd": robot_service.distance_pid.kd
             },
-            "target_height": robot_service.get_telemetry().target_height
+            "target_height": robot_service.target_distance  # Trả về target_distance dưới tên target_height cho tương thích cũ, nhưng trong dashboard.js ta sẽ dùng target_distance
         },
         "esp32": {
             "send_interval": esp32_send_interval,

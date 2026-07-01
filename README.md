@@ -1,3 +1,9 @@
+Dưới đây là file **README.md** đã được cập nhật đầy đủ. Các phần liên quan đến **Tracking**, **Robot Control** và **Tham số điều khiển** đã được bổ sung các công thức toán học (LaTeX) cùng với các cơ chế mới như **Adaptive Feature Weight**, **Age Penalty**, **History Bonus**, và các bộ lọc làm mượt chi tiết. Các phần khác (Tổng quan, Cài đặt, ...) vẫn giữ nguyên.
+
+Bạn có thể copy toàn bộ nội dung dưới đây vào file `README.md`.
+
+---
+
 # NEXORA - AI Target Following Robot
 
 > NEXORA là hệ thống robot di động thông minh theo dõi và bám mục tiêu thời gian thực ứng dụng Trí tuệ nhân tạo, Thị giác máy tính và Robot tự hành.
@@ -49,12 +55,14 @@ Thiết kế và phát triển hệ thống robot di động có khả năng:
 - Duy trì ID đối tượng ổn định
 - Hạn chế mất dấu mục tiêu
 - Feature Database cho Re-ID
+- **Các cơ chế nâng cao:** Adaptive Feature Weight, Age Penalty, History Bonus 5 frames
 
 #### Robot Control
 - Xác định vị trí mục tiêu
 - Ước lượng khoảng cách
 - Điều khiển robot bằng PID Controller
-- Lọc nhiễu bbox (Median + EMA)
+- Lọc nhiễu bbox (Median + EMA + Rate Limiter)
+- Cơ chế phanh gấp (Emergency Brake)
 
 ---
 
@@ -261,7 +269,7 @@ else:                    # Sai số ≈ 0 → đúng khoảng cách
 | **smooth_factor** | 0.3 | Hệ số làm mịn EMA | Trọng số giá trị mới. Tăng → phản hồi nhanh, Giảm → mượt hơn |
 | **stability_factor** | 0.3 | Hệ số ổn định | Giảm tốc độ khi ổn định. Tăng → chậm hơn, Giảm → nhanh hơn |
 
-### 4. Tham số tracking
+### 4. Tham số tracking (Cập nhật mới)
 
 | Tham số | Giá trị | Ý nghĩa | Ảnh hưởng |
 |---------|---------|---------|-----------|
@@ -269,10 +277,85 @@ else:                    # Sai số ≈ 0 → đúng khoảng cách
 | **high_thresh** | 0.6 | Ngưỡng high confidence | Phân loại detection chất lượng cao |
 | **match_thresh** | 0.7 | Ngưỡng match IoU | Thấp → match nhiều hơn, Cao → match chính xác hơn |
 | **track_buffer** | 30 | Số frame giữ track | Lớn → giữ track lâu hơn khi mất |
+| **history_window** | 5 | Số frame lưu lịch sử | Tăng → ổn định hơn khi có sự giao nhau, Giảm → phản hồi nhanh hơn |
+| **max_age** | 30.0 | Thời gian giữ feature (giây) | Feature DB lưu trữ histogram |
 
 ---
 
-## 📁 Cấu trúc thư mục (Cập nhật)
+## 🧠 Cơ chế Tracking nâng cao
+
+### 1. Combined Cost Metric (ByteTrack cải tiến)
+
+Thay vì chỉ dùng IoU, hệ thống tính **Cost** giữa track và detection dựa trên 3 yếu tố không gian:
+
+\[
+Cost_{spatial} = 0.5 \cdot (1 - IoU) + 0.3 \cdot \frac{\text{Distance}_{\text{centers}}}{\text{Diagonal}_{\text{frame}}} + 0.2 \cdot \left| \frac{Area_{pred} - Area_{det}}{\max(Area_{pred}, Area_{det})} \right|
+\]
+
+Trong đó:
+- \( IoU \): Chỉ số Intersection over Union.
+- \( \text{Distance}_{\text{centers}} \): Khoảng cách Euclidean giữa tâm hai bbox.
+- \( \text{Diagonal}_{\text{frame}} \): Đường chéo khung hình (chuẩn hóa).
+- \( Area \): Diện tích bbox.
+
+### 2. Adaptive Feature Weight
+
+Khi hai đối tượng đứng rất gần (khoảng cách tâm chuẩn hóa `norm_dist < 0.2`), hệ thống tự động tăng trọng số của Feature Similarity để ưu tiên màu sắc phân biệt:
+
+\[
+feature\_weight =
+\begin{cases}
+0.3 + 0.4 \cdot \left(1 - \frac{\text{norm\_dist}}{0.2}\right) & \text{nếu } \text{norm\_dist} < 0.2 \\
+0.3 & \text{ngược lại}
+\end{cases}
+\]
+
+Cost cuối cùng:
+
+\[
+Cost = (1 - feature\_weight) \cdot Cost_{spatial} + feature\_weight \cdot (1 - feature\_sim)
+\]
+
+Với `feature_sim` là độ tương đồng Histogram (tính bằng `cv2.compareHist` với phương pháp CORREL, giá trị từ 0 đến 1).
+
+### 3. Age Penalty
+
+Các track đã tồn tại lâu (`age` lớn) được giảm Cost, giúp ưu tiên giữ ID cho đối tượng cũ khi có người mới xuất hiện:
+
+\[
+Cost_{final} = Cost + \text{penalty\_lost} - \min(age \cdot 0.01, \, 0.2)
+\]
+
+### 4. History Bonus (5 frames)
+
+Lưu trữ ánh xạ (detection index → track ID) của **5 frame gần nhất**. Khi một detection xuất hiện liên tục trong lịch sử với cùng một track, nó được cộng bonus giảm Cost:
+
+\[
+bonus = 0.2 \cdot \frac{\text{số lần xuất hiện trong history}}{\text{độ dài history}}
+\]
+
+Điều này đảm bảo ID ổn định khi các đối tượng giao nhau hoặc bị che khuất tạm thời.
+
+### 5. Re-ID (Feature Database)
+
+Khi Cost Matching thất bại và track mất tín hiệu > 5 frames, hệ thống trích xuất Histogram (Hue) từ ROI, so sánh với Feature Database (ngưỡng **0.75**) để khôi phục ID.
+
+---
+
+## 🔧 Các bộ lọc trong Robot Service
+
+| Bộ lọc | Vị trí | Mục đích |
+|--------|--------|----------|
+| **Median Filter** (area, center) | Trước PID | Loại bỏ nhiễu đột ngột từ bbox |
+| **EMA Smoothing** | Sau median | Làm mịn dần các giá trị |
+| **Median Filter** (distance) | Sau ước lượng | Loại bỏ gai khoảng cách |
+| **Rate Limiter** (error_dist) | Trước PID | Ngăn sai số thay đổi đột ngột |
+| **Median + Rate Limiter** (motor_speed) | Sau PID | Làm mượt output động cơ (giới hạn thay đổi 15%/frame) |
+| **Emergency Brake** | Cuối cùng | Dừng khẩn cấp khi phát hiện người lao nhanh về phía xe |
+
+---
+
+## 📁 Cấu trúc thư mục
 
 ```text
 NEXORA-target-tracking/
@@ -351,6 +434,7 @@ NEXORA-target-tracking/
 - ByteTrack (self-implemented)
 - Kalman Filter
 - Feature Database (Re-ID)
+- Adaptive Feature Weight, Age Penalty, History Bonus
 
 ### Backend & Dashboard
 - FastAPI
@@ -366,7 +450,8 @@ NEXORA-target-tracking/
 - PID Controller
 - Median Filter
 - EMA Smoothing
-- Deadzone
+- Rate Limiter
+- Emergency Brake
 
 ---
 
@@ -522,10 +607,14 @@ ws://<IP>:8000/ws/esp32
    ├── Sinh Bounding Box
    └── Confidence Score
 
-3. ByteTrack → Theo dõi mục tiêu
+3. ByteTrack → Theo dõi mục tiêu (cải tiến)
    ├── Gán ID duy nhất
    ├── Theo dõi nhiều đối tượng
    ├── Kalman Filter dự đoán
+   ├── Cost Metric kết hợp (IoU, Center, Size)
+   ├── Adaptive Feature Weight (tăng trọng số khi gần)
+   ├── Age Penalty (ưu tiên track cũ)
+   ├── History Bonus (5 frames lịch sử)
    └── Feature Database Re-ID
 
 4. Robot Service → Điều khiển

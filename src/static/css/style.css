@@ -874,20 +874,20 @@ body {
     background: rgba(255, 204, 0, 0.35); /* Vàng nhạt */
 }
 
-/* DISTANCE ZONES */
+/* DISTANCE ZONES - CẬP NHẬT THEO YÊU CẦU MỚI */
 .too-close-zone {
     left: 0;
-    width: 25%;
+    width: 45%;           /* 0.0 - 0.9m chiếm 45% của 2.0m */
     background: rgba(255, 0, 68, 0.35); /* Đỏ */
 }
 .optimal-zone {
-    left: 25%;
-    width: 50%;
+    left: 45%;
+    width: 10%;           /* 0.9 - 1.1m chiếm 10% */
     background: rgba(0, 255, 136, 0.35); /* Xanh lá */
 }
 .too-far-zone {
-    left: 75%;
-    width: 25%;
+    left: 55%;
+    width: 45%;           /* 1.1 - 2.0m chiếm 45% */
     background: rgba(255, 204, 0, 0.35); /* Vàng */
 }
 

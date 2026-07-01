@@ -1,6 +1,6 @@
 /**
  * NEXORA - AI Target Following Robot Dashboard
- * Multi Model Support - Person, Ball, Both
+ * FIXED: Cập nhật Distance Gauge theo yêu cầu mới (0-2.0m)
  */
 
 class NexoraDashboard {
@@ -45,7 +45,7 @@ class NexoraDashboard {
             targetTime: document.getElementById('targetTime'),
             targetStatusBadge: document.getElementById('targetStatusBadge'),
             
-            // Robot Control (Legacy - Giữ lại để tương thích)
+            // Robot Control (Legacy)
             robotState: document.getElementById('robotState'),
             robotDirection: document.getElementById('robotDirection'),
             robotServo: document.getElementById('robotServo'),
@@ -75,7 +75,7 @@ class NexoraDashboard {
             distKd: document.getElementById('distKd'),
             targetHeight: document.getElementById('targetHeight'),
 
-            // ===== NEW STEERING ELEMENTS =====
+            // ===== STEERING ELEMENTS =====
             steerDir: document.getElementById('steerDir'),
             steerErrorVal: document.getElementById('steerErrorVal'),
             steerServoVal: document.getElementById('steerServoVal'),
@@ -88,7 +88,7 @@ class NexoraDashboard {
             steerFrameX: document.getElementById('steerFrameX'),
             steerTargetX: document.getElementById('steerTargetX'),
 
-            // ===== NEW DISTANCE ELEMENTS =====
+            // ===== DISTANCE ELEMENTS =====
             distRealVal: document.getElementById('distRealVal'),
             distDesiredVal: document.getElementById('distDesiredVal'),
             distErrorVal: document.getElementById('distErrorVal'),
@@ -111,7 +111,6 @@ class NexoraDashboard {
             modelStatusText: document.getElementById('modelStatusText')
         };
 
-        // Model Selection
         this.modelButtons = {
             both: document.getElementById('modelBoth'),
             person: document.getElementById('modelPerson'),
@@ -188,103 +187,85 @@ class NexoraDashboard {
         });
     }
 
-    // ===== MODEL SELECTION =====
     initializeModelSelector() {
         Object.entries(this.modelButtons).forEach(([mode, btn]) => {
             btn?.addEventListener('click', () => this.switchModel(mode));
         });
     }
 
+    async updatePIDValues() {
+        try {
+            const response = await fetch('/api/config');
+            const config = await response.json();
+            const distPID = config.robot.distance_pid;
+            const steerPID = config.robot.pid;
+            // Cập nhật các phần tử hiển thị PID
+            if (this.elements.distKpVal) this.elements.distKpVal.textContent = distPID.kp;
+            if (this.elements.distKiVal) this.elements.distKiVal.textContent = distPID.ki;
+            if (this.elements.distKdVal) this.elements.distKdVal.textContent = distPID.kd;
+            if (this.elements.steerKpVal) this.elements.steerKpVal.textContent = steerPID.kp;
+            if (this.elements.steerKiVal) this.elements.steerKiVal.textContent = steerPID.ki;
+            if (this.elements.steerKdVal) this.elements.steerKdVal.textContent = steerPID.kd;
+        } catch (error) {
+            console.error('Failed to update PID values:', error);
+        }
+    }
+    
     async switchModel(mode) {
         try {
-            // Disable buttons
-            Object.values(this.modelButtons).forEach(btn => {
-                if (btn) btn.disabled = true;
-            });
-            
-            // Show loading
+            Object.values(this.modelButtons).forEach(btn => { if (btn) btn.disabled = true; });
             this.showLoading(true, `Loading ${mode} model...`);
-            
-            // Call API to switch mode
             const response = await fetch('/api/detection/mode', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ mode: mode })
             });
-            
-            if (!response.ok) {
-                throw new Error('Failed to switch mode');
-            }
-            
+            if (!response.ok) throw new Error('Failed to switch mode');
             const result = await response.json();
-            
-            // Update UI
             this.updateModelButtons(mode);
             this.updateModelStatus('loading', 'Loading...');
-            
-            // Poll for loading status
             this.pollLoadingStatus(mode);
-            
         } catch (error) {
             console.error('Switch model error:', error);
             this.showNotification('Failed to switch model', 'error');
             this.updateModelStatus('error', 'Error');
             this.showLoading(false);
         } finally {
-            Object.values(this.modelButtons).forEach(btn => {
-                if (btn) btn.disabled = false;
-            });
+            Object.values(this.modelButtons).forEach(btn => { if (btn) btn.disabled = false; });
         }
     }
 
     async pollLoadingStatus(mode) {
         const maxAttempts = 60;
         let attempts = 0;
-        
         const checkStatus = setInterval(async () => {
             try {
                 const response = await fetch('/api/detection/loading');
                 const status = await response.json();
-                
-                // Update progress
-                if (this.elements.loadingProgress) {
-                    this.elements.loadingProgress.style.width = `${status.progress}%`;
-                }
-                if (this.elements.loadingPercent) {
-                    this.elements.loadingPercent.textContent = `${status.progress}%`;
-                }
-                
+                if (this.elements.loadingProgress) this.elements.loadingProgress.style.width = `${status.progress}%`;
+                if (this.elements.loadingPercent) this.elements.loadingPercent.textContent = `${status.progress}%`;
                 let text = 'Loading model...';
                 if (status.progress < 30) text = 'Initializing model...';
                 else if (status.progress < 70) text = 'Loading weights...';
                 else if (status.progress < 90) text = 'Optimizing model...';
                 else text = 'Finalizing...';
                 if (this.elements.loadingText) this.elements.loadingText.textContent = text;
-                
                 if (status.is_loaded) {
                     clearInterval(checkStatus);
                     this.showLoading(false);
                     this.updateModelButtons(mode);
                     this.updateModelStatus('ready', `${mode} ready`);
                     this.showNotification(`Switched to ${mode} mode`, 'success');
-                    
-                    // Update HUD
-                    if (this.elements.hudModel) {
-                        this.elements.hudModel.textContent = `MODEL: ${mode.toUpperCase()}`;
-                    }
-                    
-                    // Reset detection
+                    if (this.elements.hudModel) this.elements.hudModel.textContent = `MODEL: ${mode.toUpperCase()}`;
                     this.currentTracks = [];
                     this.selectedTargetId = null;
                 }
-                
                 if (status.is_loading === false && !status.is_loaded) {
                     clearInterval(checkStatus);
                     this.showLoading(false);
                     this.updateModelStatus('error', 'Load failed');
                     this.showNotification('Model loading failed', 'error');
                 }
-                
                 attempts++;
                 if (attempts > maxAttempts) {
                     clearInterval(checkStatus);
@@ -292,7 +273,6 @@ class NexoraDashboard {
                     this.updateModelStatus('error', 'Timeout');
                     this.showNotification('Model loading timeout', 'error');
                 }
-                
             } catch (error) {
                 console.error('Poll loading error:', error);
                 clearInterval(checkStatus);
@@ -302,9 +282,7 @@ class NexoraDashboard {
 
     updateModelButtons(mode) {
         Object.entries(this.modelButtons).forEach(([key, btn]) => {
-            if (btn) {
-                btn.classList.toggle('active', key === mode);
-            }
+            if (btn) btn.classList.toggle('active', key === mode);
         });
     }
 
@@ -330,42 +308,32 @@ class NexoraDashboard {
         try {
             const response = await fetch('/api/detection/modes');
             const data = await response.json();
-            
             if (data.current_mode) {
                 this.updateModelButtons(data.current_mode);
                 this.updateModelStatus('ready', `${data.current_mode} ready`);
-                
-                if (this.elements.hudModel) {
-                    this.elements.hudModel.textContent = `MODEL: ${data.current_mode.toUpperCase()}`;
-                }
+                if (this.elements.hudModel) this.elements.hudModel.textContent = `MODEL: ${data.current_mode.toUpperCase()}`;
             }
-            
             if (data.loading_status && data.loading_status.is_loading) {
                 this.showLoading(true, `Loading ${data.loading_status.current_mode} model...`);
                 this.pollLoadingStatus(data.loading_status.current_mode);
             }
-            
         } catch (error) {
             console.error('Check model status error:', error);
         }
     }
 
-    // ===== WEBSOCKET =====
     connectWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws/frame`;
-
         console.log(`[WS] Connecting to ${wsUrl}`);
         this.ws = new WebSocket(wsUrl);
         this.ws.binaryType = 'arraybuffer';
-
         this.ws.onopen = () => {
             this.isConnected = true;
             this.reconnectAttempts = 0;
             this.updateConnectionStatus(true);
             console.log('[WS] Connected');
         };
-
         this.ws.onmessage = (event) => {
             try {
                 if (typeof event.data === 'string') {
@@ -378,33 +346,29 @@ class NexoraDashboard {
                 console.error('[WS] Parse error:', e);
             }
         };
-
         this.ws.onclose = () => {
             this.isConnected = false;
             this.updateConnectionStatus(false);
             console.log('[WS] Disconnected');
-            
             if (this.reconnectAttempts < this.maxReconnectAttempts) {
                 this.reconnectAttempts++;
                 setTimeout(() => this.connectWebSocket(), 2000);
             }
         };
-
         this.ws.onerror = (error) => {
             console.error('[WS] Error:', error);
         };
+        this.updatePIDValues();
     }
 
     handleWebSocketMessage(data) {
         if (data.type === 'frame' || data.type === 'frame_data') {
             this.currentTracks = data.tracks || [];
-            
             this.updateStatistics(data);
             this.updateTargetPanel(data);
             this.updateRobotPanel(data);
             this.updateRobotTelemetry(data.robot_telemetry);
             this.updateHUD(data);
-            
             if (data.system) this.updateSystemMetrics({system: data.system});
             if (data.dataset) this.updateDatasetStats({dataset: data.dataset});
         } else if (data.type === 'metrics') {
@@ -419,17 +383,12 @@ class NexoraDashboard {
         try {
             const blob = new Blob([buffer], { type: 'image/jpeg' });
             const url = URL.createObjectURL(blob);
-            
             this.videoElement.src = url;
             this.videoElement.onload = () => {
                 URL.revokeObjectURL(url);
                 this.videoElement.style.objectFit = 'contain';
             };
-            
-            if (this.overlayElement) {
-                this.overlayElement.style.display = 'none';
-            }
-            
+            if (this.overlayElement) this.overlayElement.style.display = 'none';
             this.frameCount++;
         } catch (error) {
             console.error('[FRAME] Error:', error);
@@ -440,7 +399,6 @@ class NexoraDashboard {
         this.fpsUpdateInterval = setInterval(() => {
             this.currentFps = this.frameCount;
             this.frameCount = 0;
-            
             const fpsText = `FPS: ${this.currentFps}`;
             if (this.elements.hudFps) this.elements.hudFps.textContent = fpsText;
             if (this.elements.statFps) this.elements.statFps.textContent = this.currentFps;
@@ -448,21 +406,17 @@ class NexoraDashboard {
         }, 1000);
     }
 
-    // ===== UPDATE METHODS =====
     updateStatistics(data) {
         const stats = data.statistics || {};
         const tracks = data.tracks || [];
-
         if (this.elements.statPersons) this.elements.statPersons.textContent = stats.total_persons || 0;
         if (this.elements.statBalls) this.elements.statBalls.textContent = stats.total_balls || 0;
         if (this.elements.statInference) this.elements.statInference.textContent = data.inference_time ? `${Math.round(data.inference_time)}ms` : '0ms';
         if (this.elements.statTracks) this.elements.statTracks.textContent = tracks.length;
-        
         const activeCount = tracks.filter(t => !t.lost || t.lost < 3).length;
         const lostCount = tracks.filter(t => t.lost && t.lost >= 3).length;
         if (this.elements.statActive) this.elements.statActive.textContent = activeCount;
         if (this.elements.statLost) this.elements.statLost.textContent = lostCount;
-        
         if (stats.selected_target !== null && stats.selected_target !== undefined) {
             if (this.elements.statSelected) this.elements.statSelected.textContent = `ID: ${stats.selected_target}`;
             this.selectedTargetId = stats.selected_target;
@@ -475,15 +429,12 @@ class NexoraDashboard {
     updateTargetPanel(data) {
         const target = data.target || {};
         const tracks = data.tracks || [];
-
         if (target && target.id !== null && target.id !== undefined) {
             if (this.elements.targetId) this.elements.targetId.textContent = target.id;
             if (this.elements.targetClass) this.elements.targetClass.textContent = target.class || 'Person';
             if (this.elements.targetConfidence) this.elements.targetConfidence.textContent = target.confidence ? `${(target.confidence * 100).toFixed(1)}%` : '0%';
-
             const track = tracks.find(t => t.track_id === target.id);
             if (this.elements.targetTime) this.elements.targetTime.textContent = track ? `${track.age || 0}s` : '0s';
-
             if (this.elements.targetStatusBadge) {
                 const status = target.status || 'ACTIVE';
                 this.elements.targetStatusBadge.textContent = status;
@@ -501,30 +452,20 @@ class NexoraDashboard {
         }
     }
 
-    // ===== UPDATE ROBOT TELEMETRY (Technical/Debug) =====
     updateRobotTelemetry(telem) {
         if (!telem) return;
-        
-        // STEERING TECHNICAL (PID & Debug)
         if (this.elements.steerPidOut) this.elements.steerPidOut.textContent = telem.pid_steering_output?.toFixed(3) ?? '0.000';
         if (this.elements.steerTargetX) this.elements.steerTargetX.textContent = telem.target_center_x?.toFixed(1) ?? '0.0';
         if (this.elements.steerFrameX) this.elements.steerFrameX.textContent = telem.frame_center_x?.toFixed(1) ?? '320.0';
-
-        // DISTANCE TECHNICAL (PID & Debug)
         if (this.elements.distPidOut) this.elements.distPidOut.textContent = telem.pid_distance_output?.toFixed(3) ?? '0.000';
         if (this.elements.distBboxA) this.elements.distBboxA.textContent = Math.round(telem.bbox_area ?? 0);
         if (this.elements.distBboxH) this.elements.distBboxH.textContent = telem.bbox_height?.toFixed(1) ?? '0.0';
-
-        // Legacy compatibility (Remove if you don't need)
-        // Left as is for safety.
     }
 
-    // ===== UPDATE ROBOT PANEL (Operational & Gauges) =====
     updateRobotPanel(data) {
         const robot = data.robot || {};
         const telem = data.robot_telemetry || {};
         
-        // 1. ROBOT STATE & DIRECTION (Với icon)
         const stateMap = {
             'IDLE': {text: 'IDLE', cls: 'secondary'},
             'FOLLOWING': {text: 'FOLLOWING', cls: 'success'},
@@ -535,13 +476,10 @@ class NexoraDashboard {
             'TARGET LOST': {text: 'TARGET LOST', cls: 'danger'}
         };
         const currentState = stateMap[robot.state] || stateMap['IDLE'];
-        
         if (this.elements.steerStateVal) {
             this.elements.steerStateVal.textContent = currentState.text;
             this.elements.steerStateVal.className = `badge fs-6 px-3 py-2 ${currentState.cls === 'success' ? 'ok' : currentState.cls === 'warning' ? 'warning' : currentState.cls === 'danger' ? 'critical' : 'bg-secondary text-light'}`;
         }
-
-        // Direction Icon
         if (this.elements.steerDir) {
             const dir = robot.direction || 'STOP';
             let icon = '⏸️';
@@ -551,39 +489,34 @@ class NexoraDashboard {
             else if (dir === 'BACKWARD') icon = '⬇️';
             this.elements.steerDir.textContent = icon;
         }
-
-        // 2. STEERING OUTPUT (Servo & Error)
         const servo = (robot.servo_angle != null) ? robot.servo_angle : 90.0;
         const errorX = robot.offset_x ?? 0.0;
         if (this.elements.steerServoVal) this.elements.steerServoVal.textContent = servo.toFixed(1) + '°';
         if (this.elements.steerErrorVal) this.elements.steerErrorVal.textContent = errorX.toFixed(0);
         this.updateSteeringGauge(servo);
 
-        // 3. DISTANCE OUTPUT (Distance & Motor Speed)
         const motorSpeed = robot.motor_speed ?? 0.0;
         const realDist = robot.distance ?? 0.0;
+        const desiredDist = telem.target_distance ?? 1.0;
         const errorDist = telem.distance_error ?? 0.0;
-        const desiredDist = telem.target_height ?? 150; // Convert roughly for display
 
         if (this.elements.distRealVal) this.elements.distRealVal.textContent = realDist.toFixed(2) + 'm';
-        if (this.elements.distDesiredVal) this.elements.distDesiredVal.textContent = (desiredDist * 0.0133).toFixed(2) + 'm'; // Mapping 150px to ~2.0m roughly
+        if (this.elements.distDesiredVal) this.elements.distDesiredVal.textContent = desiredDist.toFixed(2) + 'm';
         if (this.elements.distErrorVal) this.elements.distErrorVal.textContent = errorDist.toFixed(1);
         if (this.elements.distMotorVal) this.elements.distMotorVal.textContent = motorSpeed.toFixed(0) + '%';
         
         // Motion direction
         if (this.elements.distMotionVal) {
-            if (motorSpeed > 5) this.elements.distMotionVal.textContent = 'FORWARD ➡️';
-            else if (motorSpeed < -5) this.elements.distMotionVal.textContent = 'BACKWARD ⬅️';
+            if (motorSpeed > 1) this.elements.distMotionVal.textContent = 'FORWARD ➡️';
+            else if (motorSpeed < -1) this.elements.distMotionVal.textContent = 'BACKWARD ⬅️';
             else this.elements.distMotionVal.textContent = 'STOP ⏸️';
         }
         this.updateDistanceGauge(realDist);
     }
 
-    // ==== CẬP NHẬT STEERING GAUGE =====
     updateSteeringGauge(servoAngle) {
         const marker = this.elements.steerGaugeMarker;
         if (!marker) return;
-        // Servo chạy từ 45° (trái) đến 135° (phải). Chuẩn hóa về 0% - 100%
         const minServo = 45;
         const maxServo = 135;
         const clamped = Math.max(minServo, Math.min(maxServo, servoAngle));
@@ -591,13 +524,13 @@ class NexoraDashboard {
         marker.style.left = percent + '%';
     }
 
-    // ==== CẬP NHẬT DISTANCE GAUGE =====
+    // === CẬP NHẬT DISTANCE GAUGE MỚI (0-2.0m) ===
     updateDistanceGauge(realDist) {
         const marker = this.elements.distGaugeMarker;
         if (!marker) return;
-        // Giả sử thang đo từ 0m đến 5m. Chuẩn hóa về 0% - 100%
+        // Thang đo mới: 0.0m -> 0%, 2.0m -> 100%
         const minDist = 0.0;
-        const maxDist = 5.0;
+        const maxDist = 2.0;
         const clamped = Math.max(minDist, Math.min(maxDist, realDist));
         const percent = ((clamped - minDist) / (maxDist - minDist)) * 100;
         marker.style.left = percent + '%';
@@ -627,7 +560,6 @@ class NexoraDashboard {
         }
     }
 
-    // ===== CONNECTION =====
     updateConnectionStatus(connected) {
         const el = this.elements.connectionStatus;
         if (!el) return;
@@ -640,7 +572,6 @@ class NexoraDashboard {
         }
     }
 
-    // ===== TIME =====
     updateTime() {
         const now = new Date();
         const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
@@ -658,13 +589,10 @@ class NexoraDashboard {
         }, 1000);
     }
 
-    // ===== NOTIFICATION =====
     showNotification(message, type = 'info') {
         const oldNotifications = document.querySelectorAll('.notification');
         oldNotifications.forEach(n => n.remove());
-
         const icons = {'success': '✅', 'error': '❌', 'warning': '⚠️', 'info': 'ℹ️'};
-        
         const notification = document.createElement('div');
         notification.className = `notification notification-${type}`;
         notification.innerHTML = `${icons[type]} ${message}`;
@@ -677,7 +605,6 @@ class NexoraDashboard {
             ${type === 'warning' ? 'background: #ffcc00; color: #000;' : ''}
             ${type === 'info' ? 'background: #00d4ff; color: #000;' : ''}
         `;
-        
         document.body.appendChild(notification);
         setTimeout(() => {
             notification.style.opacity = '0';
@@ -686,7 +613,6 @@ class NexoraDashboard {
         }, 3000);
     }
 
-    // ===== API CALLS =====
     async apiCall(endpoint, method = 'POST', data = null) {
         try {
             const options = {

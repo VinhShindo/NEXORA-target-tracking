@@ -1,7 +1,9 @@
 """
 Tracking Service - ByteTrack nâng cao với Global Combined Cost Metric
-FIXED: Giải quyết vấn đề mất ID khi đi ra/vào ở vị trí khác nhau.
-Sử dụng: IoU + Center + Size + Feature Similarity trong cùng một vòng lặp Cost.
+FIXED: Giải quyết vấn đề ID nhảy khi nhiều người đứng sát nhau.
+- Thêm Adaptive Feature Weight: Khi gần nhau, feature similarity được ưu tiên hơn.
+- Thêm Age Penalty: Track có age cao được ưu tiên giữ ID.
+- Lưu History Bonus trong 5 frame gần nhất để tăng tính ổn định.
 """
 
 import numpy as np
@@ -9,11 +11,13 @@ from typing import List, Dict, Optional
 import logging
 import cv2
 import time
+from collections import deque
 
 logger = logging.getLogger(__name__)
 
 
 class KalmanFilter:
+    # ... (giữ nguyên như cũ)
     def __init__(self):
         self.dt = 1.0
         self.A = np.array([[1, 0, self.dt, 0],
@@ -146,25 +150,33 @@ class FeatureDatabase:
 class ByteTrackOptimizedReID_Combined:
     """
     Tracker sử dụng cost metric kết hợp: IoU + Center Distance + Size Ratio + FEATURE.
-    Đảm bảo tính liên tục cao cho ID, ngay cả khi di chuyển giữa các vùng khác nhau.
+    Đã cải tiến: adaptive feature weight, age penalty, và lịch sử 5 frame gần nhất.
     """
     def __init__(self, track_thresh=0.5, high_thresh=0.6, match_thresh=0.6, track_buffer=30):
         self.track_thresh = track_thresh
         self.high_thresh = high_thresh
-        self.match_thresh = match_thresh  # Ngưỡng cost tối đa để coi là khớp
+        self.match_thresh = match_thresh
         self.track_buffer = track_buffer
         
         self.next_id = 1
         self.tracks: List[Track] = []
         self.feature_db = FeatureDatabase()
-        logger.info("ByteTrackOptimizedReID_Combined initialized with Appearance Feature in Cost.")
+        
+        # Lưu lịch sử ánh xạ cho 5 frame gần nhất (buffer)
+        self.frame_id = 0
+        self.history_assignments = deque(maxlen=5)  # Mỗi phần tử là dict {det_index: track_id}
+        
+        logger.info("ByteTrackOptimizedReID_Combined with advanced features.")
     
     def reset(self):
         self.tracks = []
         self.next_id = 1
         self.feature_db.clear_all()
+        self.history_assignments.clear()
+        self.frame_id = 0
     
     def _extract_feature(self, frame: np.ndarray, bbox) -> Optional[np.ndarray]:
+        # ... (giữ nguyên)
         try:
             x1, y1, x2, y2 = [max(0, int(v)) for v in bbox]
             h, w = frame.shape[:2]
@@ -182,7 +194,9 @@ class ByteTrackOptimizedReID_Combined:
     
     def _compute_combined_cost(self, track, det_bbox, frame_size, det_feature=None):
         """
-        Tính toán cost kết hợp: 50% Spatial (IoU/Dist/Size) + 50% Appearance (Feature Similarity).
+        Tính toán cost kết hợp với các cải tiến:
+        - Adaptive Feature Weight dựa trên khoảng cách.
+        - Age Penalty ưu tiên track cũ.
         """
         # 1. Spatial Cost (IoU, Center Distance, Size Ratio)
         track_bbox = track.bbox
@@ -213,29 +227,45 @@ class ByteTrackOptimizedReID_Combined:
         max_area = max(area_t, area_d)
         size_diff = abs(area_t - area_d) / max_area if max_area > 0 else 0.0
         
-        # Spatial Cost = 0.5 IoU + 0.3 Dist + 0.2 Size
         spatial_cost = 0.5 * (1 - iou) + 0.3 * norm_dist + 0.2 * size_diff
         
         # 2. Appearance Cost (Feature)
         feature_sim = 0.0
         if track.feature is not None and det_feature is not None:
-            # Tính độ tương tự màu sắc (0 đến 1)
             feature_sim = self.feature_db._compute_similarity(track.feature, det_feature)
         
-        # Mặc định nếu không có feature, nó sẽ dựa hoàn toàn vào Spatial Cost
+        # Xác định trọng số feature dựa trên khoảng cách (Adaptive)
+        # Khi norm_dist nhỏ (< 0.2), feature_weight tăng dần lên 0.7
+        if norm_dist < 0.2:
+            dist_factor = norm_dist / 0.2  # 0 -> 0, 0.2 -> 1
+            feature_weight = 0.3 + 0.4 * (1 - dist_factor)  # Từ 0.3 đến 0.7
+        else:
+            feature_weight = 0.3
+        
+        # Nếu không có feature, dùng spatial_cost hoàn toàn
         if track.feature is None or det_feature is None:
-            return spatial_cost
+            final_cost = spatial_cost
+        else:
+            final_cost = (1 - feature_weight) * spatial_cost + feature_weight * (1 - feature_sim)
         
-        # Kết hợp: 70% Spatial + 30% Appearance
-        final_cost = 0.7 * spatial_cost + 0.3 * (1 - feature_sim)
+        # 3. Penalty dựa trên lost count
+        if track.lost > 0:
+            penalty_lost = track.lost * 0.05
+            final_cost += penalty_lost
         
-        # Nếu khoảng cách xa quá mức (khác vùng hoàn toàn), vẫn chặn cứng bằng Spatial
-        if norm_dist > 0.8: # Quá xa không thể match, kể cả giống nhau
+        # 4. Age Penalty: track càng lâu đời, cost càng giảm (ưu tiên hơn)
+        # Giảm cost 0.01 mỗi frame age, tối đa giảm 0.2
+        age_bonus = min(track.age * 0.01, 0.2)
+        final_cost -= age_bonus
+        
+        # 5. Chặn cứng nếu khoảng cách quá xa
+        if norm_dist > 0.8:
             return 2.0
             
         return final_cost
     
     def _greedy_match(self, cost_matrix, threshold):
+        # ... (giữ nguyên)
         matches = []
         if cost_matrix.size == 0: return matches
         pairs = []
@@ -243,8 +273,7 @@ class ByteTrackOptimizedReID_Combined:
             for j in range(cost_matrix.shape[1]):
                 if cost_matrix[i, j] < threshold:
                     pairs.append((cost_matrix[i, j], i, j))
-        pairs.sort(key=lambda x: x[0]) # Cost càng nhỏ càng tốt
-        
+        pairs.sort(key=lambda x: x[0])
         matched_i = set()
         matched_j = set()
         for cost, i, j in pairs:
@@ -258,7 +287,10 @@ class ByteTrackOptimizedReID_Combined:
         if detections is None or len(detections) == 0:
             for t in self.tracks: t.predict()
             self.tracks = [t for t in self.tracks if t.lost <= self.track_buffer]
+            self.history_assignments.clear()
             return self.tracks
+        
+        self.frame_id += 1
         
         high_dets, low_dets = [], []
         for det in detections:
@@ -274,22 +306,42 @@ class ByteTrackOptimizedReID_Combined:
         matched_det_indices = set()
         frame_size = (frame.shape[1], frame.shape[0]) if frame is not None else (640, 480)
         
-        # === 1. Match High Dets sử dụng Combined Cost (Spatial + Feature) ===
+        # === 1. Match High Dets ===
         if len(self.tracks) > 0 and len(high_dets) > 0:
             cost_matrix = np.zeros((len(self.tracks), len(high_dets)))
-            # Pre-calc features để tiết kiệm thời gian
             det_features = [self._extract_feature(frame, d[:4]) if frame is not None else None for d in high_dets]
             
             for i, t in enumerate(self.tracks):
                 for j, d in enumerate(high_dets):
                     cost_matrix[i, j] = self._compute_combined_cost(t, d[:4], frame_size, det_features[j])
             
+            # === Áp dụng History Bonus dựa trên lịch sử 5 frame ===
+            # Thay vì chỉ dùng frame trước, chúng ta dùng toàn bộ history
+            for j, det in enumerate(high_dets):
+                # Đếm số lần detection này từng thuộc về track i trong lịch sử
+                count_map = {}
+                for hist in self.history_assignments:
+                    if j in hist:
+                        prev_track = hist[j]
+                        count_map[prev_track] = count_map.get(prev_track, 0) + 1
+                if count_map:
+                    # Tìm track có số lần xuất hiện nhiều nhất
+                    best_track = max(count_map, key=count_map.get)
+                    best_count = count_map[best_track]
+                    # Chỉ áp dụng bonus nếu best_count > 1 (xuất hiện ít nhất 2 lần trong lịch sử)
+                    if best_count >= 2:
+                        for i, t in enumerate(self.tracks):
+                            if t.track_id == best_track:
+                                cost_matrix[i, j] -= 0.2 * (best_count / len(self.history_assignments))
+                            else:
+                                cost_matrix[i, j] += 0.1
+            
             matches = self._greedy_match(cost_matrix, self.match_thresh)
+            new_assignment = {}
             for i, j in matches:
                 det = high_dets[j]
                 track = self.tracks[i]
                 track.update(det[:4], det[4])
-                # Cập nhật feature cho track
                 if frame is not None and track.class_id == 0:
                     feat = self._extract_feature(frame, track.bbox)
                     if feat is not None:
@@ -297,6 +349,8 @@ class ByteTrackOptimizedReID_Combined:
                         self.feature_db.update_person(track.track_id, feat, track.class_id)
                 matched_track_ids.add(i)
                 matched_det_indices.add(j)
+                new_assignment[j] = track.track_id
+            self.history_assignments.append(new_assignment)
         
         # === 2. Match Low Dets (Chỉ dùng Spatial) ===
         if len(self.tracks) > 0 and len(low_dets) > 0:
@@ -305,7 +359,6 @@ class ByteTrackOptimizedReID_Combined:
                 cost_matrix = np.zeros((len(unmatched_tracks), len(low_dets)))
                 for i, (idx, t) in enumerate(unmatched_tracks):
                     for j, d in enumerate(low_dets):
-                        # Low dets không tính Feature để tiết kiệm CPU
                         cost_matrix[i, j] = self._compute_combined_cost(t, d[:4], frame_size, None)
                 matches = self._greedy_match(cost_matrix, 0.55)
                 for i, j in matches:
@@ -315,7 +368,7 @@ class ByteTrackOptimizedReID_Combined:
                     matched_track_ids.add(unmatched_tracks[i][0])
                     matched_det_indices.add(j + len(high_dets))
         
-        # === 3. Re-ID cho các track đã mất hẳn và chưa được match ===
+        # === 3. Re-ID và an toàn (giữ nguyên) ===
         unmatched_high = [(j, d) for j, d in enumerate(high_dets) if j not in matched_det_indices]
         if frame is not None:
             for j, det in unmatched_high:
@@ -325,33 +378,38 @@ class ByteTrackOptimizedReID_Combined:
                     if feature is not None:
                         match_id = self.feature_db.find_match(feature, class_id)
                         if match_id is not None:
-                            # Tìm track đã bị xóa hoặc chưa match
-                            found_track = None
+                            should_reactivate = True
                             for t in self.tracks:
-                                if t.track_id == match_id:
-                                    found_track = t
-                                    break
-                            
-                            if found_track is not None:
-                                # Track bị treo, hồi sinh
-                                found_track.update(det[:4], det[4])
-                                found_track.feature = feature
-                                self.feature_db.update_person(match_id, feature, class_id)
-                                matched_det_indices.add(j)
-                                logger.info(f"Re-animated lost Track ID {match_id}")
-                                continue
-                            else:
-                                # Track đã bị xóa hoàn toàn khỏi self.tracks (do quá lâu), hồi sinh bằng ID cũ
-                                new_track = Track(det[:4], match_id, det[4], class_id)
-                                new_track.feature = feature
-                                new_track.is_confirmed = True  # Đã từng confirmed nên không cần chờ nữa
-                                self.tracks.append(new_track)
-                                self.feature_db.update_person(match_id, feature, class_id)
-                                matched_det_indices.add(j)
-                                logger.info(f"Re-created Track ID {match_id} from database")
-                                continue
+                                if t.lost == 0 and t.is_confirmed:
+                                    dx = t.center[0] - (det[0]+det[2])/2
+                                    dy = t.center[1] - (det[1]+det[3])/2
+                                    dist_to_active = np.hypot(dx, dy)
+                                    if dist_to_active < 100:
+                                        should_reactivate = False
+                                        break
+                            if should_reactivate:
+                                found_track = None
+                                for t in self.tracks:
+                                    if t.track_id == match_id:
+                                        found_track = t; break
+                                if found_track is not None:
+                                    found_track.update(det[:4], det[4])
+                                    found_track.feature = feature
+                                    self.feature_db.update_person(match_id, feature, class_id)
+                                    matched_det_indices.add(j)
+                                    logger.info(f"Re-animated lost Track ID {match_id}")
+                                    continue
+                                else:
+                                    new_track = Track(det[:4], match_id, det[4], class_id)
+                                    new_track.feature = feature
+                                    new_track.is_confirmed = True
+                                    self.tracks.append(new_track)
+                                    self.feature_db.update_person(match_id, feature, class_id)
+                                    matched_det_indices.add(j)
+                                    logger.info(f"Re-created Track ID {match_id} from database")
+                                    continue
         
-        # === 4. Tạo Track Mới (Nếu chưa khớp gì cả) ===
+        # === 4. Tạo Track Mới ===
         for j, det in enumerate(high_dets):
             if j not in matched_det_indices:
                 class_id = int(det[5]) if len(det) > 5 else 0
@@ -369,6 +427,7 @@ class ByteTrackOptimizedReID_Combined:
         return self.tracks
     
     def _compute_iou(self, bbox1, bbox2):
+        # ... (giữ nguyên)
         x1, y1 = max(bbox1[0], bbox2[0]), max(bbox1[1], bbox2[1])
         x2, y2 = min(bbox1[2], bbox2[2]), min(bbox1[3], bbox2[3])
         if x2 <= x1 or y2 <= y1: return 0.0
